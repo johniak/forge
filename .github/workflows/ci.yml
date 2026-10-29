@@ -13,7 +13,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Every commit on main gets its own verdict; superseded PR runs are cancelled.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -82,7 +83,9 @@ jobs:
         with:
           tool: cargo-nextest@0.9.150,cargo-llvm-cov@0.8.7
       - name: Measure
-        run: cargo "+$COVERAGE_TOOLCHAIN" llvm-cov nextest --locked --branch --workspace --json --summary-only --output-path target/coverage/coverage.json
+        run: |
+          mkdir -p target/coverage
+          cargo "+$COVERAGE_TOOLCHAIN" llvm-cov nextest --locked --branch --workspace --json --summary-only --output-path target/coverage/coverage.json
       - name: Report
         run: cargo "+$COVERAGE_TOOLCHAIN" llvm-cov report --branch --summary-only
       - name: forge coverage

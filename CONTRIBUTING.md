@@ -39,6 +39,7 @@ dominates test time otherwise).
 ```sh
 cargo nextest run --workspace
 cargo run -p forge-cli -- check
+mkdir -p target/coverage
 cargo +nightly-2026-06-13 llvm-cov nextest --branch --workspace \
   --json --summary-only --output-path target/coverage/coverage.json
 cargo run -p forge-cli -- coverage --input target/coverage/coverage.json

@@ -28,6 +28,7 @@ Coverage (lines **and** branches, gated at 100 % per module):
 
 ```sh
 rustup toolchain install nightly-2026-06-13 --profile minimal --component llvm-tools-preview
+mkdir -p target/coverage
 cargo +nightly-2026-06-13 llvm-cov nextest --branch --workspace \
   --json --summary-only --output-path target/coverage/coverage.json
 cargo run -p forge-cli -- coverage --input target/coverage/coverage.json
