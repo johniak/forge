@@ -35,6 +35,8 @@ pub enum ModuleKind {
     App,
     /// Cross-cutting shared contracts.
     Shared,
+    /// Test harness used by other modules' tests.
+    Testing,
 }
 
 /// Verification obligations declared by a module (SPEC §7.3).

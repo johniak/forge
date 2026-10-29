@@ -6,3 +6,4 @@ manifest_version = 1
 [modules]
 forge-tooling = "crates/forge-tooling"
 forge-cli = "crates/forge-cli"
+forge-testing = "crates/forge-testing"

@@ -1,0 +1,20 @@
+# forge-testing evidence (Phase 0, Task 5) — 2026-10-29T23:21:45Z
+# server image postgres:17-alpine (PostgreSQL 17.11), host: macOS + OrbStack
+
+## Docker path (FORGE_TEST_PG_URL unset), container recreated, cold then warm
+$ cargo nextest run -p forge-testing
+     Summary [  10.037s] 16 tests run: 16 passed, 0 skipped
+     Summary [   7.041s] 16 tests run: 16 passed, 0 skipped
+
+## FORGE_TEST_PG_URL path, server with default settings vs fsync/synchronous_commit/full_page_writes off
+$ FORGE_TEST_PG_URL=postgres://postgres:postgres@127.0.0.1:55432/postgres cargo nextest run -p forge-testing --test postgres
+defaults:
+     Summary [  48.390s] 7 tests run: 7 passed, 0 skipped
+settings off:
+     Summary [   6.340s] 7 tests run: 7 passed, 0 skipped
+(the remaining ~5 s is sweep_drops_stale_but_never_live_databases: PostgreSQL waits 5 s for the live session before refusing DROP DATABASE)
+
+## FORGE_TEST_PG_URL pointing at a closed port
+$ FORGE_TEST_PG_URL=postgres://postgres:postgres@127.0.0.1:1/postgres cargo nextest run -p forge-testing --test postgres --no-fail-fast
+     Summary [  30.078s] 7 tests run: 0 passed, 7 failed, 0 skipped
+BLOCKED_INFRASTRUCTURE: PostgreSQL at postgres://postgres:***@127.0.0.1:1/postgres did not accept connections within 30s: error communicating with database: Connection refused (os error 61)

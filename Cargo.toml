@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/forge-tooling", "crates/forge-cli"]
+members = ["crates/forge-tooling", "crates/forge-cli", "crates/forge-testing"]
 
 [workspace.package]
 version = "0.0.1"
@@ -17,6 +17,13 @@ toml = "1.1.8"
 thiserror = "2.0.21"
 clap = { version = "4.6.7", features = ["derive"] }
 tempfile = "3"
+sha2 = "0.11.1"
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "postgres"] }
+# `reusable-containers` is experimental upstream; it is used only for the local
+# Docker fallback of forge-testing (CI's test job uses FORGE_TEST_PG_URL).
+testcontainers = { version = "0.27.3", features = ["reusable-containers"] }
+testcontainers-modules = { version = "0.15.0", features = ["postgres"] }
+tokio = { version = "1.54.1", features = ["rt", "rt-multi-thread", "macros", "sync", "time"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

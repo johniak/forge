@@ -206,3 +206,15 @@ fn module_forbidding_itself_is_fm005() {
     assert_eq!(codes(&diags), vec!["FM005"]);
     assert!(diags[0].message.contains("forbidden"));
 }
+
+#[test]
+fn testing_kind_is_accepted() {
+    let tp = valid_project();
+    tp.write(
+        "crates/core/forge.module.toml",
+        "[module]\nname = \"core\"\nkind = \"testing\"\n\n[dependencies]\nforbidden = [\"cli\"]\n",
+    );
+    let project = load_project(tp.root()).unwrap();
+    let core = project.modules.iter().find(|m| m.name == "core").unwrap();
+    assert_eq!(core.kind, ModuleKind::Testing);
+}
