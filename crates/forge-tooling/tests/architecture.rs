@@ -154,3 +154,57 @@ fn unparseable_cargo_toml_is_fa004_with_span() {
     assert_eq!(codes(&diags), vec!["FA004"]);
     assert_eq!(diags[0].span.as_ref().unwrap().line, 1);
 }
+
+#[test]
+fn missing_workspace_cargo_toml_is_fa004_and_modules_are_still_checked() {
+    // Without the root Cargo.toml, `workspace = true` dependencies cannot be
+    // resolved; the guard must say so instead of passing.
+    let tp = valid_project();
+    std::fs::remove_file(tp.root().join("Cargo.toml")).unwrap();
+    tp.write(
+        "crates/core/Cargo.toml",
+        "[package]\nname = \"core\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\n[dependencies]\ncli = { path = \"../cli\" }\n",
+    );
+    let project = load_project(tp.root()).unwrap();
+    let diags = check_architecture(&project);
+    assert_eq!(codes(&diags), vec!["FA004", "FA002", "FA003"], "{diags:?}");
+    assert!(diags[0].message.contains("Cargo.toml"));
+}
+
+#[test]
+fn unparseable_workspace_cargo_toml_is_fa004_with_span() {
+    let tp = valid_project();
+    tp.write("Cargo.toml", "[workspace\n");
+    let project = load_project(tp.root()).unwrap();
+    let diags = check_architecture(&project);
+    assert_eq!(codes(&diags), vec!["FA004"]);
+    let span = diags[0].span.as_ref().unwrap();
+    assert!(span.file.ends_with("Cargo.toml"));
+    assert_eq!(span.line, 1);
+}
+
+#[test]
+fn path_dependency_on_a_non_module_crate_is_ignored() {
+    let tp = valid_project();
+    tp.write(
+        "vendor/helper/Cargo.toml",
+        "[package]\nname = \"helper\"\nversion = \"0.0.0\"\nedition = \"2024\"\n",
+    );
+    tp.write(
+        "crates/core/Cargo.toml",
+        "[package]\nname = \"core\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\n[dependencies]\nhelper = { path = \"../../vendor/helper\" }\n",
+    );
+    let project = load_project(tp.root()).unwrap();
+    assert!(check_architecture(&project).is_empty());
+}
+
+#[test]
+fn self_path_dependency_is_not_an_edge() {
+    let tp = valid_project();
+    tp.write(
+        "crates/core/Cargo.toml",
+        "[package]\nname = \"core\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\n[dev-dependencies]\ncore = { path = \".\" }\n",
+    );
+    let project = load_project(tp.root()).unwrap();
+    assert!(check_architecture(&project).is_empty());
+}

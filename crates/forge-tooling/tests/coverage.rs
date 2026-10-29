@@ -243,3 +243,37 @@ fn broken_manifest_fails_without_reading_coverage() {
     let manifests = result(&report, "manifests");
     assert_eq!(manifests.diagnostics[0].code, "FM001");
 }
+
+#[test]
+fn export_of_another_type_is_not_verified() {
+    let tp = valid_project();
+    let input = tp.write("coverage.json", r#"{"type":"lcov","data":[]}"#);
+    let report = run(&tp, &input);
+    assert_eq!(report.status, Status::NotVerified);
+    let core = result(&report, "coverage:core");
+    assert_eq!(core.diagnostics[0].code, "FV004");
+    assert!(
+        core.diagnostics[0].message.contains("`lcov`"),
+        "{:?}",
+        core.diagnostics
+    );
+}
+
+#[test]
+fn each_file_is_reported_only_for_its_own_shortfall() {
+    let tp = valid_project();
+    tp.write("crates/core/src/a.rs", "");
+    let mut files = full(&tp);
+    files[0].2 = (3, 4);
+    files.push((src(&tp, "crates/core/src/a.rs"), (1, 2), (2, 2)));
+    let report = run(&tp, &export(&tp, &files));
+    let core = result(&report, "coverage:core");
+    let found: Vec<(&str, bool)> = core
+        .diagnostics
+        .iter()
+        .map(|d| (d.code.as_str(), d.message.contains("a.rs")))
+        .collect();
+    assert_eq!(found.len(), 2, "{:?}", core.diagnostics);
+    assert!(found.contains(&("FV001", true)), "{found:?}");
+    assert!(found.contains(&("FV002", false)), "{found:?}");
+}

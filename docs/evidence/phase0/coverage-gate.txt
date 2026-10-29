@@ -1,0 +1,25 @@
+# Phase 0 coverage gate evidence
+# date: 2026-10-29T22:49:09Z  commit-base: 3af2ff1 (+ working tree of Task 4)
+# toolchains: rustc 1.95.0 (59807616e 2026-04-14) | rustc 1.98.0-nightly (654079540 2026-06-12) | cargo-llvm-cov 0.8.7 | cargo-nextest 0.9.150 (d225b1daf 2026-10-26)
+
+$ cargo +nightly-2026-06-13 llvm-cov nextest --branch --workspace --json --summary-only --output-path target/coverage/coverage.json
+     Summary [   1.035s] 84 tests run: 84 passed, 0 skipped
+
+$ cargo +nightly-2026-06-13 llvm-cov report --branch --summary-only
+Filename                              Regions    Missed Regions     Cover   Functions  Missed Functions  Executed       Lines      Missed Lines     Cover    Branches   Missed Branches     Cover
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+forge-cli/src/main.rs                      41                 0   100.00%           5                 0   100.00%          38                 0   100.00%           0                 0         -
+forge-tooling/src/architecture.rs         279                 0   100.00%          19                 0   100.00%         173                 0   100.00%          16                 0   100.00%
+forge-tooling/src/check.rs                357                 0   100.00%          29                 0   100.00%         202                 0   100.00%          20                 0   100.00%
+forge-tooling/src/coverage.rs             230                 0   100.00%          21                 0   100.00%         158                 0   100.00%          18                 0   100.00%
+forge-tooling/src/manifest.rs             280                 0   100.00%          16                 0   100.00%         167                 0   100.00%          20                 0   100.00%
+forge-tooling/src/process.rs               15                 0   100.00%           1                 0   100.00%           8                 0   100.00%           0                 0         -
+forge-tooling/src/report.rs               305                 0   100.00%          28                 0   100.00%         226                 0   100.00%           6                 0   100.00%
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+TOTAL                                    1507                 0   100.00%         119                 0   100.00%         972                 0   100.00%          80                 0   100.00%
+
+$ cargo run -q -p forge-cli -- coverage --input target/coverage/coverage.json
+forge.coverage: PASS
+  [PASS] coverage:forge-cli
+  [PASS] coverage:forge-tooling
+exit: 0

@@ -137,11 +137,13 @@ pub(crate) fn parse_toml<T: serde::de::DeserializeOwned>(
     code: &str,
 ) -> Result<T, Box<Diagnostic>> {
     toml::from_str(text).map_err(|err: toml::de::Error| {
-        let diag = Diagnostic::error(code, format!("{}: {}", file.display(), err.message()));
-        Box::new(match err.span() {
-            Some(range) => diag.with_span(Span::from_byte_range(file.to_path_buf(), text, range)),
-            None => diag,
-        })
+        // toml reports a span for every error our derived types can produce; an
+        // error it cannot localize still points at the file it came from.
+        let range = err.span().unwrap_or(0..0);
+        Box::new(
+            Diagnostic::error(code, format!("{}: {}", file.display(), err.message()))
+                .with_span(Span::from_byte_range(file.to_path_buf(), text, range)),
+        )
     })
 }
 

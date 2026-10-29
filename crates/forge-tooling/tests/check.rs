@@ -392,3 +392,81 @@ fn clippy_duplicate_messages_are_reported_once() {
     assert_eq!(diag.code, "clippy::needless_return");
     assert_eq!(diag.span.as_ref().unwrap().line, 3);
 }
+
+#[test]
+fn skipping_architecture_alone_is_not_verified_and_manifests_still_run() {
+    let tp = valid_project();
+    let options = CheckOptions {
+        root: tp.root().to_path_buf(),
+        skip: vec![CheckId::Architecture],
+    };
+    let report = run_check(&options, &FakeRunner::new(ok(""), ok("")));
+    assert_eq!(by_id(&report, "manifests").status, Status::Pass);
+    let architecture = by_id(&report, "architecture");
+    assert_eq!(architecture.status, Status::NotVerified);
+    assert_eq!(architecture.diagnostics[0].code, "FSKIP");
+    assert_eq!(report.status, Status::NotVerified);
+}
+
+#[test]
+fn compiler_notes_are_not_reported_as_findings() {
+    let tp = valid_project();
+    let note = CLIPPY_ERROR
+        .lines()
+        .nth(1)
+        .unwrap()
+        .replace(r#""level":"error""#, r#""level":"note""#);
+    let report = run_check(&opts(&tp), &FakeRunner::new(ok(""), ok(&note)));
+    let clippy = by_id(&report, "clippy");
+    assert_eq!(clippy.status, Status::Pass);
+    assert!(clippy.diagnostics.is_empty(), "{:?}", clippy.diagnostics);
+}
+
+#[test]
+fn fmt_killed_by_a_signal_fails_and_says_so() {
+    let tp = valid_project();
+    let killed = CommandOutput {
+        status: None,
+        stdout: String::new(),
+        stderr: String::new(),
+    };
+    let report = run_check(&opts(&tp), &FakeRunner::new(killed, ok("")));
+    let fmt = by_id(&report, "fmt");
+    assert_eq!(fmt.status, Status::Fail);
+    assert_eq!(fmt.diagnostics[0].code, "FF000");
+    assert!(
+        fmt.diagnostics[0].message.contains("signal"),
+        "{:?}",
+        fmt.diagnostics
+    );
+}
+
+#[test]
+fn fmt_diff_headers_without_a_line_number_fall_back_to_ff000() {
+    let tp = valid_project();
+    let diff = "Diff in /abs/src/lib.rs:abc:\nDiff in nothing useful\n";
+    let report = run_check(&opts(&tp), &FakeRunner::new(failed(1, diff, ""), ok("")));
+    let fmt = by_id(&report, "fmt");
+    assert_eq!(fmt.status, Status::Fail);
+    let codes: Vec<&str> = fmt.diagnostics.iter().map(|d| d.code.as_str()).collect();
+    assert_eq!(codes, vec!["FF000"]);
+}
+
+#[test]
+fn malformed_compiler_messages_are_dropped() {
+    let tp = valid_project();
+    let stdout = [
+        r#"{"reason":"compiler-message","message":{"message":"no level","spans":[]}}"#,
+        r#"{"reason":"compiler-message","message":{"level":"error","message":"no spans"}}"#,
+        r#"{"reason":"compiler-message","message":{"level":"error","message":"no file","spans":[{"is_primary":true}]}}"#,
+    ]
+    .join("\n");
+    let report = run_check(
+        &opts(&tp),
+        &FakeRunner::new(ok(""), failed(101, &stdout, "")),
+    );
+    let clippy = by_id(&report, "clippy");
+    assert_eq!(clippy.status, Status::Fail);
+    let codes: Vec<&str> = clippy.diagnostics.iter().map(|d| d.code.as_str()).collect();
+    assert_eq!(codes, vec!["FC000"]);
+}

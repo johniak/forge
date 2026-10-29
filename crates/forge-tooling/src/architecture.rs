@@ -42,20 +42,29 @@ struct Edge {
 }
 
 /// `[workspace.dependencies]` entries that point at a path, keyed by name.
-fn workspace_dependencies(root: &Path) -> BTreeMap<String, PathBuf> {
+///
+/// # Errors
+///
+/// `FA004` when the root `Cargo.toml` cannot be read or parsed: `workspace =
+/// true` dependencies could not be resolved, so the guard must not pass.
+fn workspace_dependencies(root: &Path) -> Result<BTreeMap<String, PathBuf>, Box<Diagnostic>> {
     let file = root.join("Cargo.toml");
-    let Ok(text) = fs::read_to_string(&file) else {
-        return BTreeMap::new();
-    };
-    let Ok(parsed) = parse_toml::<RootCargoFile>(&file, &text, "FA004") else {
-        return BTreeMap::new();
-    };
-    parsed
+    let text = fs::read_to_string(&file).map_err(|err| {
+        Diagnostic::error(
+            "FA004",
+            format!(
+                "cannot read workspace manifest {}: {err}; `workspace = true` dependencies cannot be checked",
+                file.display()
+            ),
+        )
+    })?;
+    let parsed = parse_toml::<RootCargoFile>(&file, &text, "FA004")?;
+    Ok(parsed
         .workspace
         .dependencies
         .into_iter()
         .filter_map(|(name, value)| path_of(&value).map(|p| (name, root.join(p))))
-        .collect()
+        .collect())
 }
 
 /// `path = "…"` of a dependency table, if any.
@@ -179,7 +188,10 @@ fn visit<'a>(
 #[must_use]
 pub fn check_architecture(project: &Project) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
-    let workspace_deps = workspace_dependencies(&project.root);
+    let workspace_deps = workspace_dependencies(&project.root).unwrap_or_else(|d| {
+        diags.push(*d);
+        BTreeMap::new()
+    });
     let by_path: HashMap<&Path, &str> = project
         .modules
         .iter()

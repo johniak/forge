@@ -182,3 +182,27 @@ fn verification_defaults_to_100_percent_when_omitted() {
     assert_eq!(core.verification.branch_coverage, 100);
     assert!(core.allowed.is_empty());
 }
+
+#[test]
+fn unsupported_manifest_version_is_fm007_with_span() {
+    let tp = valid_project();
+    tp.write(
+        "forge.toml",
+        "[project]\nname = \"demo\"\nmanifest_version = 2\n\n[modules]\ncore = \"crates/core\"\ncli = \"crates/cli\"\n",
+    );
+    let diags = load_project(tp.root()).unwrap_err();
+    assert_eq!(codes(&diags), vec!["FM007"]);
+    assert!(diags[0].message.contains('2'));
+    let span = diags[0].span.as_ref().unwrap();
+    assert!(span.file.ends_with("forge.toml"));
+    assert_eq!(span.line, 3);
+}
+
+#[test]
+fn module_forbidding_itself_is_fm005() {
+    let tp = valid_project();
+    tp.module("core", "crates/core", &[], &["core"], "");
+    let diags = load_project(tp.root()).unwrap_err();
+    assert_eq!(codes(&diags), vec!["FM005"]);
+    assert!(diags[0].message.contains("forbidden"));
+}
