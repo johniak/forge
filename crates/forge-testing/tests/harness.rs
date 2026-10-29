@@ -139,3 +139,27 @@ async fn wait_ready_keeps_urls_without_a_password_intact() {
         assert!(!err.to_string().contains("***"), "{err}");
     }
 }
+
+#[tokio::test]
+async fn wait_ready_keeps_retrying_until_the_timeout() {
+    let started = std::time::Instant::now();
+    let err = wait_ready(
+        "postgres://forge@127.0.0.1:1/postgres",
+        Duration::from_millis(400),
+    )
+    .await
+    .unwrap_err();
+    let elapsed = started.elapsed();
+    assert!(
+        matches!(err, HarnessError::BlockedInfrastructure(_)),
+        "{err:?}"
+    );
+    assert!(
+        elapsed >= Duration::from_millis(400),
+        "gave up after {elapsed:?}"
+    );
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "kept waiting for {elapsed:?}"
+    );
+}

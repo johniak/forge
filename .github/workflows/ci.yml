@@ -1,0 +1,126 @@
+# Phase 0 CI (docs/superpowers/plans/2026-10-29-phase-0-baseline.md, Task 6).
+# Gating jobs: check, test, coverage. `mutants` is informational until Phase 4
+# makes it gating with a threshold; its name says so, and its report is uploaded.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Branch coverage needs nightly (ADR-0002 amendment): rustc 1.98.0-nightly (654079540 2026-06-12).
+  COVERAGE_TOOLCHAIN: nightly-2026-06-13
+
+jobs:
+  check:
+    name: check (fmt, clippy, manifests, architecture)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the pinned toolchain
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal --component rustfmt,clippy,llvm-tools
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: forge check
+        run: cargo run --locked -p forge-cli -- check
+
+  test:
+    name: test (nextest, PostgreSQL service)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      FORGE_TEST_PG_URL: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the pinned toolchain
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal --component rustfmt,clippy,llvm-tools
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-nextest@0.9.150
+      - name: Tune the test server (throw-away data; DROP DATABASE forces a checkpoint)
+        run: |
+          psql "$FORGE_TEST_PG_URL" -v ON_ERROR_STOP=1 \
+            -c "ALTER SYSTEM SET fsync = off" \
+            -c "ALTER SYSTEM SET synchronous_commit = off" \
+            -c "ALTER SYSTEM SET full_page_writes = off" \
+            -c "SELECT pg_reload_conf()"
+      - name: cargo nextest run
+        run: cargo nextest run --locked --workspace
+
+  coverage:
+    name: coverage (100% lines and branches per module)
+    runs-on: ubuntu-latest
+    # No FORGE_TEST_PG_URL: this job exercises the Docker path a fresh clone uses.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the pinned toolchain (fixture projects run cargo fmt/clippy on it)
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal --component rustfmt,clippy,llvm-tools
+      - name: Install the coverage toolchain
+        run: rustup toolchain install "$COVERAGE_TOOLCHAIN" --profile minimal --component llvm-tools-preview
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-nextest@0.9.150,cargo-llvm-cov@0.8.7
+      - name: Measure
+        run: cargo "+$COVERAGE_TOOLCHAIN" llvm-cov nextest --locked --branch --workspace --json --summary-only --output-path target/coverage/coverage.json
+      - name: Report
+        run: cargo "+$COVERAGE_TOOLCHAIN" llvm-cov report --branch --summary-only
+      - name: forge coverage
+        run: cargo run --locked -p forge-cli -- coverage --input target/coverage/coverage.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: coverage
+          path: target/coverage/coverage.json
+
+  mutants:
+    name: mutants (informational)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    # 156 mutants of forge-tooling + forge-cli took 12 min locally with one job.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Install the pinned toolchain
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal --component rustfmt,clippy,llvm-tools
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-mutants@27.1.0
+      - name: Mutants in the pull request's diff
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git diff "origin/$BASE_REF...HEAD" > pr.diff
+          cargo mutants --workspace --jobs 2 --in-diff pr.diff --timeout 120
+      - name: Mutants of the tooling crates
+        if: github.event_name == 'push'
+        run: cargo mutants --package forge-tooling --package forge-cli --jobs 2 --timeout 120
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: mutants
+          path: mutants.out

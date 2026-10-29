@@ -1,0 +1,24 @@
+# Phase 0 mutation testing (informational) — 2026-10-29T23:53:38Z
+# cargo-mutants 27.1.0, one job, macOS arm64
+
+$ cargo mutants --package forge-tooling --package forge-cli --timeout 120
+156 mutants tested in 12m: 1 missed, 118 caught, 36 unviable, 1 timeouts
+missed:
+  crates/forge-tooling/src/architecture.rs:77:5: replace is_workspace_dep -> bool with true
+timeout (an infinite loop the tests do not survive; counted as detected):
+  crates/forge-tooling/src/report.rs:123:16: replace -= with /= in line_column
+follow-up: test registry_dependency_sharing_a_workspace_name_is_not_an_edge added;
+$ cargo mutants --package forge-tooling --file crates/forge-tooling/src/architecture.rs --re is_workspace_dep
+  3 mutants tested: 3 caught
+
+$ cargo mutants --package forge-testing --timeout 180   (Docker path)
+51 mutants tested in 10m: 3 missed, 41 caught, 7 unviable
+missed:
+  crates/forge-testing/src/database.rs:200:74: replace < with <= in sweep_stale
+  crates/forge-testing/src/server.rs:124:35: replace + with - in wait_ready
+  crates/forge-testing/src/server.rs:130:27: replace >= with < in wait_ready
+follow-up: test wait_ready_keeps_retrying_until_the_timeout added;
+$ cargo mutants --package forge-testing --file crates/forge-testing/src/server.rs --re wait_ready
+  4 mutants tested: 3 caught, 1 unviable
+remaining (accepted, equivalent in practice):
+  crates/forge-testing/src/database.rs: sweep_stale `created < cutoff` -> `<=`: differs only for a database created in the exact cutoff second of a one-hour threshold; pinning it needs an injected clock, not worth it in Phase 0.

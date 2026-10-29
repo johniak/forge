@@ -208,3 +208,17 @@ fn self_path_dependency_is_not_an_edge() {
     let project = load_project(tp.root()).unwrap();
     assert!(check_architecture(&project).is_empty());
 }
+
+#[test]
+fn registry_dependency_sharing_a_workspace_name_is_not_an_edge() {
+    // Only `workspace = true` resolves through [workspace.dependencies]; a
+    // registry dependency that happens to share the name is not a module edge.
+    let tp = valid_project();
+    tp.write(
+        "Cargo.toml",
+        "[workspace]\nresolver = \"3\"\nmembers = [\"crates/core\", \"crates/cli\"]\n\n[workspace.dependencies]\ncore = { path = \"crates/core\" }\n",
+    );
+    tp.module("cli", "crates/cli", &[], &[], "core = \"1.0\"");
+    let project = load_project(tp.root()).unwrap();
+    assert!(check_architecture(&project).is_empty());
+}
