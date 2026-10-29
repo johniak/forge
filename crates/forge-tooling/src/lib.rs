@@ -6,6 +6,7 @@
 
 pub mod architecture;
 pub mod check;
+pub mod coverage;
 pub mod manifest;
 pub mod process;
 pub mod report;

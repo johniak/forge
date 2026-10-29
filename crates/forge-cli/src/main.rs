@@ -7,6 +7,7 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use forge_tooling::check::{CheckId, CheckOptions, UnknownCheck, run_check};
+use forge_tooling::coverage::{CoverageOptions, run_coverage};
 use forge_tooling::process::SystemRunner;
 use forge_tooling::report::{CheckReport, Status};
 
@@ -21,6 +22,21 @@ struct Cli {
 enum Command {
     /// Validates manifests, architecture boundaries, formatting and lints.
     Check(CheckArgs),
+    /// Gates line and branch coverage per module against an llvm-cov JSON export.
+    Coverage(CoverageArgs),
+}
+
+#[derive(Args)]
+struct CoverageArgs {
+    /// Project root (the directory holding forge.toml).
+    #[arg(long, default_value = ".")]
+    root: PathBuf,
+    /// JSON export written by `cargo llvm-cov --json --summary-only --output-path <PATH>`.
+    #[arg(long)]
+    input: PathBuf,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = Format::Text)]
+    format: Format,
 }
 
 #[derive(Args)]
@@ -65,17 +81,25 @@ fn exit_code(status: Status) -> ExitCode {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    match cli.command {
-        Command::Check(args) => {
-            let report = run_check(
+    let (report, format) = match cli.command {
+        Command::Check(args) => (
+            run_check(
                 &CheckOptions {
                     root: args.root,
                     skip: args.skip,
                 },
                 &SystemRunner,
-            );
-            print!("{}", render(&report, args.format));
-            exit_code(report.status)
-        }
-    }
+            ),
+            args.format,
+        ),
+        Command::Coverage(args) => (
+            run_coverage(&CoverageOptions {
+                root: args.root,
+                input: args.input,
+            }),
+            args.format,
+        ),
+    };
+    print!("{}", render(&report, format));
+    exit_code(report.status)
 }

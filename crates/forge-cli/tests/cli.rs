@@ -241,3 +241,47 @@ fn version_flag_works() {
     assert_eq!(out.status.code(), Some(0));
     assert!(String::from_utf8_lossy(&out.stdout).starts_with("forge "));
 }
+
+/// An llvm-cov summary export for `tiny_project` with the given line counts for
+/// the `core` module (the `cli` module is always fully covered).
+fn coverage_export(root: &Path, core_lines: (u64, u64)) -> String {
+    let root = root.canonicalize().unwrap();
+    let file = |rel: &str, (covered, count): (u64, u64)| {
+        format!(
+            r#"{{"filename":"{}","summary":{{"lines":{{"count":{count},"covered":{covered}}},"branches":{{"count":0,"covered":0}}}}}}"#,
+            root.join(rel).display()
+        )
+    };
+    format!(
+        r#"{{"type":"llvm.coverage.json.export","version":"3.1.0","data":[{{"files":[{},{}]}}]}}"#,
+        file("crates/core/src/lib.rs", core_lines),
+        file("crates/cli/src/main.rs", (3, 3))
+    )
+}
+
+#[test]
+fn coverage_command_exit_codes() {
+    let dir = tiny_project();
+    let root = dir.path();
+    write(root, "full.json", &coverage_export(root, (4, 4)));
+    write(root, "short.json", &coverage_export(root, (3, 4)));
+
+    let pass = forge(&["coverage", "--input", "full.json"], root);
+    assert_eq!(pass.status.code(), Some(0), "{pass:?}");
+    assert!(String::from_utf8_lossy(&pass.stdout).contains("forge.coverage: PASS"));
+
+    let fail = forge(&["coverage", "--input", "short.json"], root);
+    assert_eq!(fail.status.code(), Some(1), "{fail:?}");
+    assert!(String::from_utf8_lossy(&fail.stdout).contains("FV001"));
+
+    let missing = forge(&["coverage", "--input", "missing.json"], root);
+    assert_eq!(missing.status.code(), Some(3), "{missing:?}");
+
+    let json = forge(
+        &["coverage", "--input", "full.json", "--format", "json"],
+        root,
+    );
+    let report: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(report["tool"], "forge.coverage");
+    assert_eq!(report["schema_version"], 1);
+}
