@@ -1,0 +1,8 @@
+# Forge's own project manifest: the framework dogfoods `forge check` (CLAUDE.md rule 10).
+[project]
+name = "forge"
+manifest_version = 1
+
+[modules]
+forge-tooling = "crates/forge-tooling"
+forge-cli = "crates/forge-cli"

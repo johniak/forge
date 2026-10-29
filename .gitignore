@@ -1,0 +1,11 @@
+/target
+**/target/
+*.profraw
+*.profdata
+/coverage/
+/.forge/generated/
+/.env
+/.env.*
+!/.env.example
+node_modules/
+.DS_Store

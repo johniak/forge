@@ -1,0 +1,5 @@
+# Pinned so that a fresh checkout builds with exactly one compiler.
+# Coverage uses a separately pinned nightly (see docs/adrs/0002-test-and-coverage-policy.md).
+[toolchain]
+channel = "1.95.0"
+components = ["rustfmt", "clippy", "llvm-tools"]

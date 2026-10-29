@@ -1,0 +1,140 @@
+=== EXPERIMENT A: stable, --branch ===
+warning: --branch option is unstable
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+warning: --branch flag requires nightly toolchain; consider using `cargo +nightly llvm-cov`
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling serde_core v1.0.229
+   Compiling libc v0.2.191
+   Compiling zmij v1.0.23
+   Compiling winnow v1.0.4
+   Compiling utf8parse v0.2.2
+   Compiling thiserror v2.0.21
+   Compiling serde v1.0.229
+   Compiling serde_json v1.0.154
+   Compiling anstyle-parse v1.0.0
+   Compiling toml_writer v1.1.3+spec-1.1.0
+   Compiling colorchoice v1.0.5
+   Compiling anstyle-query v1.1.5
+   Compiling rustix v1.1.6
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstyle v1.0.14
+   Compiling getrandom v0.4.3
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling itoa v1.0.18
+   Compiling memchr v2.8.3
+   Compiling bitflags v2.13.2
+   Compiling anstream v1.0.0
+   Compiling strsim v0.11.1
+   Compiling cfg-if v1.0.5
+   Compiling heck v0.5.0
+   Compiling clap_lex v1.1.1
+   Compiling once_cell v1.21.4
+   Compiling fastrand v2.5.0
+   Compiling clap_builder v4.6.7
+   Compiling syn v3.0.9
+   Compiling errno v0.3.14
+   Compiling tempfile v3.27.0
+   Compiling serde_spanned v1.1.2
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling toml v1.1.8+spec-1.1.0
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.21
+   Compiling clap_derive v4.6.7
+   Compiling clap v4.6.7
+   Compiling forge-tooling v0.0.1 (/Users/johniak/Projects/forge/crates/forge-tooling)
+error: the option `Z` is only accepted on the nightly compiler
+
+help: consider switching to a nightly toolchain: `rustup default nightly`
+
+note: selecting a toolchain with `+toolchain` arguments require a rustup proxy; see <https://rust-lang.github.io/rustup/concepts/index.html>
+
+note: for more information about Rust's stability policy, see <https://doc.rust-lang.org/book/appendix-07-nightly-rust.html#unstable-features>
+
+error: 1 nightly option were parsed
+
+error: process didn't exit successfully: `/Users/johniak/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustc --crate-name forge_tooling --edition=2024 crates/forge-tooling/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked '--warn=clippy::pedantic' '--warn=clippy::all' '--warn=clippy::unwrap_used' --forbid=unsafe_code --warn=missing_docs '--warn=clippy::expect_used' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=8ff187df236a266d -C extra-filename=-4515dd5a4fbbdf18 --out-dir /Users/johniak/Projects/forge/target/llvm-cov-target/debug/deps -C incremental=/Users/johniak/Projects/forge/target/llvm-cov-target/debug/incremental -L dependency=/Users/johniak/Projects/forge/target/llvm-cov-target/debug/deps --extern serde=/Users/johniak/Projects/forge/target/llvm-cov-target/debug/deps/libserde-35918052df79ab76.rmeta --extern serde_json=/Users/johniak/Projects/forge/target/llvm-cov-target/debug/deps/libserde_json-6e51220838ddd7c1.rmeta --extern thiserror=/Users/johniak/Projects/forge/target/llvm-cov-target/debug/deps/libthiserror-e84c7b92f5875e96.rmeta --extern toml=/Users/johniak/Projects/forge/target/llvm-cov-target/debug/deps/libtoml-30bc56a76d6fb596.rmeta -C instrument-coverage -Z coverage-options=branch --cfg=coverage` (exit status: 1)
+error: could not compile `forge-tooling` (lib)
+
+Caused by:
+  process didn't exit successfully: `/Users/johniak/.cargo/bin/cargo-llvm-cov /Users/johniak/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustc --crate-name forge_tooling --edition=2024 crates/forge-tooling/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked '--warn=clippy::pedantic' '--warn=clippy::all' '--warn=clippy::unwrap_used' --forbid=unsafe_code --warn=missing_docs '--warn=clippy::expect_used' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=8ff187df236a266d -C extra-filename=-4515dd5a4fbbdf18 --out-dir /Users/johniak/Projects/forge/target/llvm-cov-target/debug/deps -C incremental=/Users/johniak/Projects/forge/target/llvm-cov-target/debug/incremental -L dependency=/Users/johniak/Projects/forge/target/llvm-cov-target/debug/deps --extern serde=/Users/johniak/Projects/forge/target/llvm-cov-target/debug/deps/libserde-35918052df79ab76.rmeta --extern serde_json=/Users/johniak/Projects/forge/target/llvm-cov-target/debug/deps/libserde_json-6e51220838ddd7c1.rmeta --extern thiserror=/Users/johniak/Projects/forge/target/llvm-cov-target/debug/deps/libthiserror-e84c7b92f5875e96.rmeta --extern toml=/Users/johniak/Projects/forge/target/llvm-cov-target/debug/deps/libtoml-30bc56a76d6fb596.rmeta` (exit status: 1)
+warning: build failed, waiting for other jobs to finish...
+error: process didn't exit successfully: `/Users/johniak/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/cargo test --tests --manifest-path /Users/johniak/Projects/forge/Cargo.toml --target-dir /Users/johniak/Projects/forge/target/llvm-cov-target` (exit status: 101)
+exit=101
+=== EXPERIMENT B: nightly, --branch ===
+warning: --branch option is unstable
+info: cargo-llvm-cov currently setting cfg(coverage) and cfg(coverage_nightly); you can opt-out it by passing --no-cfg-coverage and --no-cfg-coverage-nightly
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.27
+   Compiling quote v1.0.47
+   Compiling serde_core v1.0.229
+   Compiling libc v0.2.191
+   Compiling zmij v1.0.23
+   Compiling thiserror v2.0.21
+   Compiling utf8parse v0.2.2
+   Compiling serde_json v1.0.154
+   Compiling serde v1.0.229
+   Compiling winnow v1.0.4
+   Compiling anstyle-parse v1.0.0
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling toml_writer v1.1.3+spec-1.1.0
+   Compiling itoa v1.0.18
+   Compiling getrandom v0.4.3
+   Compiling anstyle v1.0.14
+   Compiling anstyle-query v1.1.5
+   Compiling rustix v1.1.6
+   Compiling memchr v2.8.3
+   Compiling colorchoice v1.0.5
+   Compiling strsim v0.11.1
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling clap_lex v1.1.1
+   Compiling anstream v1.0.0
+   Compiling bitflags v2.13.2
+   Compiling heck v0.5.0
+   Compiling cfg-if v1.0.5
+   Compiling fastrand v2.5.0
+   Compiling clap_builder v4.6.7
+   Compiling once_cell v1.21.4
+   Compiling syn v3.0.9
+   Compiling errno v0.3.14
+   Compiling tempfile v3.27.0
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling serde_spanned v1.1.2
+   Compiling toml v1.1.8+spec-1.1.0
+   Compiling thiserror-impl v2.0.21
+   Compiling serde_derive v1.0.229
+   Compiling clap_derive v4.6.7
+   Compiling clap v4.6.7
+   Compiling forge-tooling v0.0.1 (/Users/johniak/Projects/forge/crates/forge-tooling)
+   Compiling forge-cli v0.0.1 (/Users/johniak/Projects/forge/crates/forge-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 20s
+     Running unittests src/main.rs (target/llvm-cov-target/debug/deps/forge-c2791c160ec60653)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/llvm-cov-target/debug/deps/forge_tooling-d9333b48bc2c0ae5)
+
+running 6 tests
+test report::tests::all_pass_is_pass ... ok
+test report::tests::empty_is_not_verified ... ok
+test report::tests::fail_wins_over_everything ... ok
+test report::tests::is_pass_only_for_pass ... ok
+test report::tests::not_verified_wins_over_pass ... ok
+test report::tests::serializes_as_screaming_snake_case ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+Filename                        Regions    Missed Regions     Cover   Functions  Missed Functions  Executed       Lines      Missed Lines     Cover    Branches   Missed Branches     Cover
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+forge-cli/src/main.rs                 6                 6     0.00%           1                 1     0.00%           5                 5     0.00%           0                 0         -
+forge-tooling/src/report.rs          67                 0   100.00%           8                 0   100.00%          38                 0   100.00%           0                 0         -
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+TOTAL                                73                 6    91.78%           9                 1    88.89%          43                 5    88.37%           0                 0         -
+exit=0
+=== toolchain versions ===
+rustc 1.95.0 (59807616e 2026-04-14)
+rustc 1.98.0-nightly (654079540 2026-06-12)
+cargo-llvm-cov 0.8.7
