@@ -12,37 +12,52 @@ use forge_tooling::check::{CheckId, CheckOptions, run_check};
 use forge_tooling::process::{CommandOutput, CommandRunner};
 use forge_tooling::report::{SCHEMA_VERSION, Severity, Status};
 
+/// What the scripted runner answers for one program: an output or a launch error.
+struct Reply(io::Result<CommandOutput>);
+
+impl From<CommandOutput> for Reply {
+    fn from(output: CommandOutput) -> Self {
+        Reply(Ok(output))
+    }
+}
+
+impl From<io::Error> for Reply {
+    fn from(err: io::Error) -> Self {
+        Reply(Err(err))
+    }
+}
+
 /// Scripted runner: answers by program name, records every call.
 struct FakeRunner {
-    fmt: io::Result<CommandOutput>,
-    clippy: io::Result<CommandOutput>,
+    fmt: Reply,
+    clippy: Reply,
     calls: RefCell<Vec<(String, Vec<String>, String)>>,
 }
 
 impl FakeRunner {
-    fn new(fmt: io::Result<CommandOutput>, clippy: io::Result<CommandOutput>) -> Self {
+    fn new(fmt: impl Into<Reply>, clippy: impl Into<Reply>) -> Self {
         Self {
-            fmt,
-            clippy,
+            fmt: fmt.into(),
+            clippy: clippy.into(),
             calls: RefCell::new(Vec::new()),
         }
     }
 }
 
-fn ok(stdout: &str) -> io::Result<CommandOutput> {
-    Ok(CommandOutput {
+fn ok(stdout: &str) -> CommandOutput {
+    CommandOutput {
         status: Some(0),
         stdout: stdout.to_string(),
         stderr: String::new(),
-    })
+    }
 }
 
-fn failed(code: i32, stdout: &str, stderr: &str) -> io::Result<CommandOutput> {
-    Ok(CommandOutput {
+fn failed(code: i32, stdout: &str, stderr: &str) -> CommandOutput {
+    CommandOutput {
         status: Some(code),
         stdout: stdout.to_string(),
         stderr: stderr.to_string(),
-    })
+    }
 }
 
 fn clone_result(r: &io::Result<CommandOutput>) -> io::Result<CommandOutput> {
@@ -60,8 +75,8 @@ impl CommandRunner for FakeRunner {
             cwd.display().to_string(),
         ));
         match args.first().copied() {
-            Some("fmt") => clone_result(&self.fmt),
-            Some("clippy") => clone_result(&self.clippy),
+            Some("fmt") => clone_result(&self.fmt.0),
+            Some("clippy") => clone_result(&self.clippy.0),
             other => panic!("unexpected command {program} {other:?}"),
         }
     }
@@ -189,7 +204,7 @@ fn fmt_nonzero_exit_without_diff_is_still_a_failure_with_stderr() {
 #[test]
 fn io_error_launching_cargo_is_not_verified() {
     let tp = valid_project();
-    let err = || Err(io::Error::new(io::ErrorKind::NotFound, "cargo not found"));
+    let err = || io::Error::new(io::ErrorKind::NotFound, "cargo not found");
     let report = run_check(&opts(&tp), &FakeRunner::new(err(), err()));
     assert_eq!(report.status, Status::NotVerified);
     for id in ["fmt", "clippy"] {
@@ -358,4 +373,22 @@ fn nonexistent_root_is_reported_not_panicked() {
     let report = run_check(&options, &FakeRunner::new(ok(""), ok("")));
     assert_eq!(report.status, Status::Fail);
     assert_eq!(by_id(&report, "manifests").diagnostics[0].code, "FM001");
+}
+
+#[test]
+fn clippy_duplicate_messages_are_reported_once() {
+    // clippy emits the same finding once per target (lib and lib test).
+    let tp = valid_project();
+    let line = CLIPPY_ERROR.lines().nth(1).unwrap();
+    let twice = format!("{line}\n{line}\n");
+    let report = run_check(
+        &opts(&tp),
+        &FakeRunner::new(ok(""), failed(101, &twice, "")),
+    );
+    let clippy = by_id(&report, "clippy");
+    assert_eq!(clippy.status, Status::Fail);
+    assert_eq!(clippy.diagnostics.len(), 1, "{:?}", clippy.diagnostics);
+    let diag = &clippy.diagnostics[0];
+    assert_eq!(diag.code, "clippy::needless_return");
+    assert_eq!(diag.span.as_ref().unwrap().line, 3);
 }

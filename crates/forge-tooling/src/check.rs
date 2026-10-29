@@ -220,13 +220,21 @@ fn run_clippy(runner: &dyn CommandRunner, cwd: &Path) -> CheckResult {
 
 /// Parses `cargo --message-format=json` lines; keeps error/warning compiler
 /// messages that have a span (summary lines like "aborting due to…" have none).
+/// A finding reported once per target (lib, lib test) is kept once, in
+/// first-seen order.
 fn parse_cargo_messages(stdout: &str, root: &Path) -> Vec<Diagnostic> {
-    stdout
+    let mut diagnostics: Vec<Diagnostic> = Vec::new();
+    let messages = stdout
         .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
         .filter(|v| v["reason"] == "compiler-message")
-        .filter_map(|v| compiler_message(&v["message"], root))
-        .collect()
+        .filter_map(|v| compiler_message(&v["message"], root));
+    for diag in messages {
+        if !diagnostics.contains(&diag) {
+            diagnostics.push(diag);
+        }
+    }
+    diagnostics
 }
 
 fn compiler_message(message: &Value, root: &Path) -> Option<Diagnostic> {

@@ -77,17 +77,17 @@ fn module_edges(
     module: &Module,
     workspace_deps: &BTreeMap<String, PathBuf>,
     by_path: &HashMap<&Path, &str>,
-) -> Result<Vec<Edge>, Diagnostic> {
+) -> Result<Vec<Edge>, Box<Diagnostic>> {
     let file = module.path.join("Cargo.toml");
     let text = fs::read_to_string(&file).map_err(|err| {
-        Diagnostic::error(
+        Box::new(Diagnostic::error(
             "FA004",
             format!(
                 "module `{}`: cannot read {}: {err}",
                 module.name,
                 file.display()
             ),
-        )
+        ))
     })?;
     let parsed: CargoFile = parse_toml(&file, &text, "FA004")?;
 
@@ -195,7 +195,7 @@ pub fn check_architecture(project: &Project) -> Vec<Diagnostic> {
     for module in &project.modules {
         match module_edges(module, &workspace_deps, &by_path) {
             Ok(e) => edges.extend(e),
-            Err(d) => diags.push(d),
+            Err(d) => diags.push(*d),
         }
     }
 

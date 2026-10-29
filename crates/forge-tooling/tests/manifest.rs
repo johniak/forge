@@ -55,7 +55,7 @@ fn syntax_error_in_forge_toml_has_a_span() {
     );
     let diags = load_project(tp.root()).unwrap_err();
     assert_eq!(codes(&diags), vec!["FM001"]);
-    let span = diags[0].span.as_ref().expect("parse errors carry a span");
+    let span = diags[0].span.as_ref().unwrap();
     assert!(span.file.ends_with("forge.toml"));
     assert_eq!(span.line, 6, "span: {span:?}");
     assert!(span.column >= 1);

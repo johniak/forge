@@ -6,6 +6,7 @@
     clippy::must_use_candidate
 )]
 
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -67,7 +68,7 @@ impl TempProject {
     pub fn forge_toml(&self, modules: &[(&str, &str)]) {
         let mut s = String::from("[project]\nname = \"demo\"\nmanifest_version = 1\n\n[modules]\n");
         for (name, path) in modules {
-            s.push_str(&format!("{name} = \"{path}\"\n"));
+            writeln!(s, "{name} = \"{path}\"").unwrap();
         }
         self.write("forge.toml", &s);
     }

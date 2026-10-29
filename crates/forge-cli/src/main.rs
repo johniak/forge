@@ -1,6 +1,6 @@
 //! `forge` CLI: a thin adapter over `forge-tooling`.
 //!
-//! Exit codes: `0` PASS, `1` FAIL, `3` NOT_VERIFIED, `2` usage error.
+//! Exit codes: `0` PASS, `1` FAIL, `3` `NOT_VERIFIED`, `2` usage error.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -31,7 +31,7 @@ struct CheckArgs {
     /// Output format.
     #[arg(long, value_enum, default_value_t = Format::Text)]
     format: Format,
-    /// Checks to skip; each is reported as NOT_VERIFIED (manifests, architecture, fmt, clippy).
+    /// Checks to skip; each is reported as `NOT_VERIFIED` (manifests, architecture, fmt, clippy).
     #[arg(long = "skip", value_name = "CHECK", value_parser = parse_check_id)]
     skip: Vec<CheckId>,
 }
@@ -40,7 +40,7 @@ struct CheckArgs {
 enum Format {
     /// Compact human-readable text.
     Text,
-    /// Versioned JSON report (schema_version 1).
+    /// Versioned JSON report (`schema_version` 1).
     Json,
 }
 

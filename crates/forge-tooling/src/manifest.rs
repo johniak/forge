@@ -135,13 +135,13 @@ pub(crate) fn parse_toml<T: serde::de::DeserializeOwned>(
     file: &Path,
     text: &str,
     code: &str,
-) -> Result<T, Diagnostic> {
+) -> Result<T, Box<Diagnostic>> {
     toml::from_str(text).map_err(|err: toml::de::Error| {
         let diag = Diagnostic::error(code, format!("{}: {}", file.display(), err.message()));
-        match err.span() {
+        Box::new(match err.span() {
             Some(range) => diag.with_span(Span::from_byte_range(file.to_path_buf(), text, range)),
             None => diag,
-        }
+        })
     })
 }
 
@@ -161,7 +161,7 @@ pub fn load_project(root: &Path) -> Result<Project, Vec<Diagnostic>> {
     let manifest_path = root.join(PROJECT_MANIFEST);
     let text = fs::read_to_string(&manifest_path)
         .map_err(|err| vec![read_error("FM001", &manifest_path, &err)])?;
-    let file: ProjectFile = parse_toml(&manifest_path, &text, "FM001").map_err(|d| vec![d])?;
+    let file: ProjectFile = parse_toml(&manifest_path, &text, "FM001").map_err(|d| vec![*d])?;
 
     let mut diags = Vec::new();
     if *file.project.manifest_version.get_ref() != SUPPORTED_MANIFEST_VERSION {
@@ -182,7 +182,7 @@ pub fn load_project(root: &Path) -> Result<Project, Vec<Diagnostic>> {
     let mut modules = Vec::new();
 
     for (name, rel_path) in &file.modules {
-        let entry_span = || Span::from_byte_range(manifest_path.clone(), &text, rel_path.span());
+        let entry_span = Span::from_byte_range(manifest_path.clone(), &text, rel_path.span());
         let dir = root.join(rel_path.get_ref());
         let key = dir.canonicalize().unwrap_or_else(|_| dir.clone());
         if let Some(other) = seen_paths.insert(key.clone(), name) {
@@ -194,105 +194,14 @@ pub fn load_project(root: &Path) -> Result<Project, Vec<Diagnostic>> {
                         rel_path.get_ref()
                     ),
                 )
-                .with_span(entry_span()),
+                .with_span(entry_span),
             );
             continue;
         }
-
-        let module_manifest = dir.join(MODULE_MANIFEST);
-        let module_text = match fs::read_to_string(&module_manifest) {
-            Ok(t) => t,
-            Err(err) => {
-                diags.push(
-                    Diagnostic::error(
-                        "FM002",
-                        format!(
-                            "module `{name}`: cannot read {}: {err}",
-                            module_manifest.display()
-                        ),
-                    )
-                    .with_span(entry_span()),
-                );
-                continue;
-            }
-        };
-        let parsed: ModuleFile = match parse_toml(&module_manifest, &module_text, "FM001") {
-            Ok(p) => p,
-            Err(d) => {
-                diags.push(d);
-                continue;
-            }
-        };
-        if parsed.module.name.get_ref() != name {
-            diags.push(
-                Diagnostic::error(
-                    "FM003",
-                    format!(
-                        "module manifest declares name `{}` but forge.toml calls it `{name}`",
-                        parsed.module.name.get_ref()
-                    ),
-                )
-                .with_span(Span::from_byte_range(
-                    module_manifest.clone(),
-                    &module_text,
-                    parsed.module.name.span(),
-                )),
-            );
-            continue;
+        match load_module(name, key, &declared, entry_span) {
+            Ok(module) => modules.push(module),
+            Err(module_diags) => diags.extend(module_diags),
         }
-
-        let unknown = |entry: &Spanned<String>, list: &str| {
-            Diagnostic::error(
-                "FM005",
-                format!(
-                    "module `{name}`: `{}` in `{list}` is not a module of this project",
-                    entry.get_ref()
-                ),
-            )
-            .with_span(Span::from_byte_range(
-                module_manifest.clone(),
-                &module_text,
-                entry.span(),
-            ))
-        };
-        let mut allowed = Vec::new();
-        for entry in &parsed.dependencies.allowed {
-            let target = entry.get_ref();
-            if target == name || !declared.contains(target.as_str()) {
-                diags.push(unknown(entry, "allowed"));
-            }
-            allowed.push(target.clone());
-        }
-        let mut forbidden = Vec::new();
-        for entry in &parsed.dependencies.forbidden {
-            let target = entry.get_ref();
-            if allowed.contains(target) {
-                diags.push(
-                    Diagnostic::error(
-                        "FM006",
-                        format!("module `{name}`: `{target}` is both allowed and forbidden"),
-                    )
-                    .with_span(Span::from_byte_range(
-                        module_manifest.clone(),
-                        &module_text,
-                        entry.span(),
-                    )),
-                );
-            } else if target == name || !declared.contains(target.as_str()) {
-                diags.push(unknown(entry, "forbidden"));
-            }
-            forbidden.push(target.clone());
-        }
-
-        modules.push(Module {
-            name: name.clone(),
-            path: key,
-            kind: parsed.module.kind,
-            description: parsed.module.description,
-            allowed,
-            forbidden,
-            verification: parsed.verification,
-        });
     }
 
     if diags.is_empty() {
@@ -301,6 +210,111 @@ pub fn load_project(root: &Path) -> Result<Project, Vec<Diagnostic>> {
             name: file.project.name,
             modules,
         })
+    } else {
+        Err(diags)
+    }
+}
+
+/// Reads and validates one module manifest in directory `dir` (canonical when
+/// it exists). `entry_span` points at the module's entry in `forge.toml`.
+fn load_module(
+    name: &str,
+    dir: PathBuf,
+    declared: &BTreeSet<&str>,
+    entry_span: Span,
+) -> Result<Module, Vec<Diagnostic>> {
+    let module_manifest = dir.join(MODULE_MANIFEST);
+    let module_text = fs::read_to_string(&module_manifest).map_err(|err| {
+        vec![
+            Diagnostic::error(
+                "FM002",
+                format!(
+                    "module `{name}`: cannot read {}: {err}",
+                    module_manifest.display()
+                ),
+            )
+            .with_span(entry_span),
+        ]
+    })?;
+    let parsed: ModuleFile =
+        parse_toml(&module_manifest, &module_text, "FM001").map_err(|d| vec![*d])?;
+    if parsed.module.name.get_ref() != name {
+        return Err(vec![
+            Diagnostic::error(
+                "FM003",
+                format!(
+                    "module manifest declares name `{}` but forge.toml calls it `{name}`",
+                    parsed.module.name.get_ref()
+                ),
+            )
+            .with_span(Span::from_byte_range(
+                module_manifest.clone(),
+                &module_text,
+                parsed.module.name.span(),
+            )),
+        ]);
+    }
+    let span_of = |entry: &Spanned<String>| {
+        Span::from_byte_range(module_manifest.clone(), &module_text, entry.span())
+    };
+    let (allowed, forbidden) =
+        validate_dependencies(name, &parsed.dependencies, declared, span_of)?;
+    Ok(Module {
+        name: name.to_string(),
+        path: dir,
+        kind: parsed.module.kind,
+        description: parsed.module.description,
+        allowed,
+        forbidden,
+        verification: parsed.verification,
+    })
+}
+
+/// Checks a module's `allowed`/`forbidden` lists against the declared modules
+/// (`FM005`, `FM006`) and returns them as plain names.
+fn validate_dependencies(
+    name: &str,
+    deps: &DependenciesSection,
+    declared: &BTreeSet<&str>,
+    span_of: impl Fn(&Spanned<String>) -> Span,
+) -> Result<(Vec<String>, Vec<String>), Vec<Diagnostic>> {
+    let mut diags = Vec::new();
+    let unknown = |entry: &Spanned<String>, list: &str| {
+        Diagnostic::error(
+            "FM005",
+            format!(
+                "module `{name}`: `{}` in `{list}` is not a module of this project",
+                entry.get_ref()
+            ),
+        )
+        .with_span(span_of(entry))
+    };
+    let mut allowed = Vec::new();
+    for entry in &deps.allowed {
+        let target = entry.get_ref();
+        if target == name || !declared.contains(target.as_str()) {
+            diags.push(unknown(entry, "allowed"));
+        }
+        allowed.push(target.clone());
+    }
+    let mut forbidden = Vec::new();
+    for entry in &deps.forbidden {
+        let target = entry.get_ref();
+        if allowed.contains(target) {
+            diags.push(
+                Diagnostic::error(
+                    "FM006",
+                    format!("module `{name}`: `{target}` is both allowed and forbidden"),
+                )
+                .with_span(span_of(entry)),
+            );
+        } else if target == name || !declared.contains(target.as_str()) {
+            diags.push(unknown(entry, "forbidden"));
+        }
+        forbidden.push(target.clone());
+    }
+    if diags.is_empty() {
+        Ok((allowed, forbidden))
     } else {
         Err(diags)
     }
