@@ -5,12 +5,36 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
 
+/// Variables a coverage run (`cargo +nightly llvm-cov`) sets for its own build;
+/// the `cargo fmt`/`cargo clippy` that `forge` spawns in a fixture project must
+/// not inherit them, or the fixture runs on the coverage toolchain and flags.
+const COVERAGE_RUN_VARS: [&str; 9] = [
+    "RUSTUP_TOOLCHAIN",
+    "RUSTFLAGS",
+    "CARGO_ENCODED_RUSTFLAGS",
+    "RUSTDOCFLAGS",
+    "CARGO_ENCODED_RUSTDOCFLAGS",
+    "CARGO_TARGET_DIR",
+    "CARGO_BUILD_TARGET_DIR",
+    "RUSTC_WRAPPER",
+    "RUSTC_WORKSPACE_WRAPPER",
+];
+
+/// Runs the `forge` binary with an environment that is identical under
+/// `cargo nextest run` and under a coverage run. `LLVM_PROFILE_FILE` is kept so
+/// the instrumented binary still records its own coverage.
 fn forge(args: &[&str], cwd: &Path) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_forge"))
-        .args(args)
-        .current_dir(cwd)
-        .output()
-        .unwrap()
+    let mut command = Command::new(env!("CARGO_BIN_EXE_forge"));
+    command.args(args).current_dir(cwd);
+    for var in COVERAGE_RUN_VARS {
+        command.env_remove(var);
+    }
+    for (var, _) in std::env::vars_os() {
+        if var.to_string_lossy().starts_with("CARGO_LLVM_COV") {
+            command.env_remove(var);
+        }
+    }
+    command.output().unwrap()
 }
 
 fn write(root: &Path, rel: &str, content: &str) {
@@ -23,6 +47,12 @@ fn write(root: &Path, rel: &str, content: &str) {
 fn tiny_project() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
+    // Same pinned compiler as the repository, whichever toolchain runs the tests.
+    write(
+        root,
+        "rust-toolchain.toml",
+        include_str!("../../../rust-toolchain.toml"),
+    );
     write(
         root,
         "Cargo.toml",

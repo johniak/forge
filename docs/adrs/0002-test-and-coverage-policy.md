@@ -62,3 +62,30 @@ High: if `-C instrument-coverage` branch support stabilizes, drop the nightly.
 ## Evidence
 
 `docs/evidence/phase0/coverage-experiment.txt`
+
+## Amendment 2026-10-29 (proposed, awaiting owner approval)
+
+1. **Pinned coverage toolchain is `nightly-2026-06-13`.** The name
+   `nightly-2026-06-12` in Decision 2 resolves to
+   `rustc 1.98.0-nightly (b30f3df3b 2026-06-11)`; the build measured in the
+   experiment is `rustc 1.98.0-nightly (654079540 2026-06-12)`, shipped as
+   `nightly-2026-06-13` (rustup names a nightly by its release date, the day
+   after the commit date). CI and `CONTRIBUTING.md` use
+   `COVERAGE_TOOLCHAIN=nightly-2026-06-13`.
+2. **Subprocess hygiene.** Tests that spawn `cargo` (the `forge check`
+   integration tests) remove the variables a coverage run sets for its own
+   build — `RUSTUP_TOOLCHAIN`, `RUSTFLAGS`, `CARGO_ENCODED_RUSTFLAGS`,
+   `RUSTDOCFLAGS`, `CARGO_ENCODED_RUSTDOCFLAGS`, `CARGO_TARGET_DIR`,
+   `CARGO_BUILD_TARGET_DIR`, `RUSTC_WRAPPER`, `RUSTC_WORKSPACE_WRAPPER` and
+   every `CARGO_LLVM_COV*` — and pin fixture projects to the repository's
+   `rust-toolchain.toml`. `LLVM_PROFILE_FILE` is kept so the instrumented
+   binary still records coverage. Without this, 3 of 58 tests failed under
+   `cargo +nightly-2026-06-13 llvm-cov nextest --branch` (fixture `cargo fmt`
+   and `cargo clippy` ran on the nightly, which has neither component).
+   Installing clippy into the nightly was rejected: test results would then
+   depend on which clippy ran.
+3. **The branch gate is Forge code.** `cargo llvm-cov` offers
+   `--fail-under-lines`, `--fail-under-regions` and `--fail-under-functions`
+   but no branch threshold (checked with `cargo llvm-cov --help`, 2026-10-29).
+   `forge coverage` reads the `--json --summary-only` export and enforces each
+   module's `[verification]` thresholds from `forge.module.toml`.
