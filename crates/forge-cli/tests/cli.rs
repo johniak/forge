@@ -248,7 +248,7 @@ fn coverage_export(root: &Path, core_lines: (u64, u64)) -> String {
     let root = root.canonicalize().unwrap();
     let file = |rel: &str, (covered, count): (u64, u64)| {
         format!(
-            r#"{{"filename":"{}","summary":{{"lines":{{"count":{count},"covered":{covered}}},"branches":{{"count":0,"covered":0}}}}}}"#,
+            r#"{{"filename":"{}","summary":{{"lines":{{"count":{count},"covered":{covered}}},"branches":{{"count":2,"covered":2}}}}}}"#,
             root.join(rel).display()
         )
     };

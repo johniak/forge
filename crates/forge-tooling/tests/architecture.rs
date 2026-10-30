@@ -222,3 +222,26 @@ fn registry_dependency_sharing_a_workspace_name_is_not_an_edge() {
     let project = load_project(tp.root()).unwrap();
     assert!(check_architecture(&project).is_empty());
 }
+
+#[test]
+fn target_specific_dependencies_are_checked_too() {
+    // `[target.'cfg(…)'.dependencies]` is as real an edge as `[dependencies]`.
+    let tp = valid_project();
+    tp.write(
+        "crates/core/Cargo.toml",
+        "[package]\nname = \"core\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\n[target.'cfg(all())'.dependencies]\ncli = { path = \"../cli\" }\n\n[target.'cfg(unix)'.dev-dependencies]\ncli = { path = \"../cli\" }\n",
+    );
+    let project = load_project(tp.root()).unwrap();
+    let diags = check_architecture(&project);
+    let fa002: Vec<&Diagnostic> = diags.iter().filter(|d| d.code == "FA002").collect();
+    assert_eq!(fa002.len(), 2, "{diags:?}");
+    assert!(
+        fa002[0]
+            .message
+            .contains("target.'cfg(all())'.dependencies")
+            || fa002[0].message.contains("cfg(all())"),
+        "{}",
+        fa002[0].message
+    );
+    assert_eq!(fa002[0].span.as_ref().unwrap().line, 7);
+}

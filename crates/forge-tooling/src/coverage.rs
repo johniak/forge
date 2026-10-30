@@ -4,8 +4,10 @@
 //! `cargo llvm-cov` has no branch threshold of its own; this gate enforces the
 //! `[verification]` thresholds every module declares in `forge.module.toml`.
 //! Code that did not run under coverage is never counted as covered: a module
-//! without measured files is `NOT_VERIFIED`, and a measured file that belongs to
-//! no module fails the report.
+//! without measured files is `NOT_VERIFIED`, an export without branch data is
+//! `NOT_VERIFIED`, source files that `cargo llvm-cov` hides by default are
+//! `NOT_VERIFIED`, and a measured file that belongs to no module fails the
+//! report. Thresholds below 100 fail until owner-approved exclusions exist.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -13,7 +15,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use crate::manifest::{Module, load_project};
-use crate::report::{CheckReport, CheckResult, Diagnostic, Span};
+use crate::report::{CheckReport, CheckResult, Diagnostic, Span, Status};
 
 const TOOL: &str = "forge.coverage";
 const EXPORT_TYPE: &str = "llvm.coverage.json.export";
@@ -139,6 +141,7 @@ pub fn run_coverage(options: &CoverageOptions) -> CheckReport {
         }
     };
 
+    let has_branch_data = files.iter().any(|f| f.branches.count > 0);
     let mut owned: Vec<Vec<FileCoverage>> = vec![Vec::new(); project.modules.len()];
     let mut unowned = Vec::new();
     for mut file in files {
@@ -153,7 +156,7 @@ pub fn run_coverage(options: &CoverageOptions) -> CheckReport {
         .modules
         .iter()
         .zip(owned)
-        .map(|(module, files)| module_result(module, files))
+        .map(|(module, files)| module_result(module, files, has_branch_data))
         .collect();
     if !unowned.is_empty() {
         checks.push(CheckResult::fail(
@@ -185,8 +188,32 @@ fn owner(modules: &[Module], file: &Path) -> Option<usize> {
         .map(|(i, _)| i)
 }
 
-fn module_result(module: &Module, mut files: Vec<FileCoverage>) -> CheckResult {
+fn module_result(
+    module: &Module,
+    mut files: Vec<FileCoverage>,
+    has_branch_data: bool,
+) -> CheckResult {
     let id = result_id(module);
+    let required = module.verification;
+    let lowered: Vec<Diagnostic> = [
+        ("line_coverage", required.line_coverage),
+        ("branch_coverage", required.branch_coverage),
+    ]
+    .into_iter()
+    .filter(|(_, percent)| *percent < 100)
+    .map(|(field, percent)| lowered_threshold(module, field, percent))
+    .collect();
+    if !lowered.is_empty() {
+        return CheckResult::fail(id, lowered);
+    }
+    if !has_branch_data {
+        return CheckResult::not_verified(
+            id,
+            "FV006",
+            "the coverage export has no branch data (0 branches in every file); measure with \
+             `cargo +nightly-2026-06-13 llvm-cov --branch` (ADR-0002)",
+        );
+    }
     if files.is_empty() {
         return CheckResult::not_verified(
             id,
@@ -197,16 +224,12 @@ fn module_result(module: &Module, mut files: Vec<FileCoverage>) -> CheckResult {
             ),
         );
     }
+
     let total = |pick: fn(&FileCoverage) -> Counts| {
         files.iter().map(pick).fold(Counts::default(), Counts::add)
     };
-    let required = module.verification;
     let lines_ok = total(|f| f.lines).meets(required.line_coverage);
     let branches_ok = total(|f| f.branches).meets(required.branch_coverage);
-    if lines_ok && branches_ok {
-        return CheckResult::pass(id);
-    }
-
     files.sort_by_key(|f| std::cmp::Reverse(f.lines.missed() + f.branches.missed()));
     let mut diagnostics = Vec::new();
     for f in &files {
@@ -231,7 +254,94 @@ fn module_result(module: &Module, mut files: Vec<FileCoverage>) -> CheckResult {
             ));
         }
     }
-    CheckResult::fail(id, diagnostics)
+    let failed = !diagnostics.is_empty();
+    let mut hidden = Vec::new();
+    hidden_sources(&module.path.join("src"), Path::new(""), &mut hidden);
+    diagnostics.extend(hidden.into_iter().map(hidden_file));
+    let status = if failed {
+        Status::Fail
+    } else if diagnostics.is_empty() {
+        Status::Pass
+    } else {
+        Status::NotVerified
+    };
+    CheckResult {
+        id,
+        status,
+        diagnostics,
+        raw_log: None,
+    }
+}
+
+/// Collects `.rs` files below `dir` that `cargo llvm-cov`'s default filename
+/// filter drops: anything in a `tests`, `examples` or `benches` directory and
+/// files named `tests.rs`, `*_tests.rs` or `*-tests.rs` (cargo-llvm-cov 0.8.7,
+/// `src/report.rs`). `rel` is the path of `dir` below the module's `src/`.
+fn hidden_sources(dir: &Path, rel: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut entries: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+    entries.sort();
+    for path in entries {
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        let rel = rel.join(&name);
+        if path.is_dir() {
+            hidden_sources(&path, &rel, out);
+        } else if is_hidden_by_default(&rel) {
+            out.push(path);
+        }
+    }
+}
+
+fn is_hidden_by_default(rel: &Path) -> bool {
+    let Some(stem) = rel
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_suffix(".rs"))
+    else {
+        return false;
+    };
+    let in_hidden_dir = rel.parent().is_some_and(|dir| {
+        dir.iter()
+            .any(|c| matches!(c.to_str(), Some("tests" | "examples" | "benches")))
+    });
+    // `tests\.rs|[0-9a-zA-Z_-]+[_-]tests\.rs`
+    let tests_file = stem == "tests"
+        || stem
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            && stem.len() > "_tests".len()
+            && (stem.ends_with("_tests") || stem.ends_with("-tests"));
+    in_hidden_dir || tests_file
+}
+
+fn hidden_file(file: PathBuf) -> Diagnostic {
+    Diagnostic::error(
+        "FV007",
+        format!(
+            "{} is never measured: cargo llvm-cov drops tests/, examples/, benches/ and *tests.rs files by default",
+            file.display()
+        ),
+    )
+    .with_span(Span::line_only(file, 1))
+    .with_help("rename it, or move test-only code to the crate's top-level tests/ directory")
+}
+
+fn lowered_threshold(module: &Module, field: &str, percent: u8) -> Diagnostic {
+    Diagnostic::error(
+        "FV008",
+        format!(
+            "module `{}` declares {field} = {percent}; thresholds below 100 need an owner-approved \
+             exclusion ledger entry (ADR-0002), which does not exist before Phase 4",
+            module.name
+        ),
+    )
+    .with_help("restore 100 in forge.module.toml and cover the code")
 }
 
 fn shortfall(

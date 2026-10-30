@@ -11,6 +11,18 @@ use toml::{Spanned, Value};
 use crate::manifest::{Module, Project, parse_toml};
 use crate::report::{Diagnostic, Span};
 
+/// The dependency tables of a `Cargo.toml`, at top level or under
+/// `[target.'<cfg>']`.
+#[derive(Deserialize, Default)]
+struct DependencyTables {
+    #[serde(default)]
+    dependencies: BTreeMap<String, Spanned<Value>>,
+    #[serde(default, rename = "dev-dependencies")]
+    dev_dependencies: BTreeMap<String, Spanned<Value>>,
+    #[serde(default, rename = "build-dependencies")]
+    build_dependencies: BTreeMap<String, Spanned<Value>>,
+}
+
 #[derive(Deserialize, Default)]
 struct CargoFile {
     #[serde(default)]
@@ -19,6 +31,8 @@ struct CargoFile {
     dev_dependencies: BTreeMap<String, Spanned<Value>>,
     #[serde(default, rename = "build-dependencies")]
     build_dependencies: BTreeMap<String, Spanned<Value>>,
+    #[serde(default)]
+    target: BTreeMap<String, DependencyTables>,
 }
 
 #[derive(Deserialize, Default)]
@@ -37,7 +51,7 @@ struct WorkspaceSection {
 struct Edge {
     from: String,
     to: String,
-    section: &'static str,
+    section: String,
     span: Span,
 }
 
@@ -100,11 +114,27 @@ fn module_edges(
     })?;
     let parsed: CargoFile = parse_toml(&file, &text, "FA004")?;
 
-    let sections = [
-        ("dependencies", &parsed.dependencies),
-        ("dev-dependencies", &parsed.dev_dependencies),
-        ("build-dependencies", &parsed.build_dependencies),
-    ];
+    let top_level = DependencyTables {
+        dependencies: parsed.dependencies,
+        dev_dependencies: parsed.dev_dependencies,
+        build_dependencies: parsed.build_dependencies,
+    };
+    let targets = parsed
+        .target
+        .iter()
+        .map(|(cfg, tables)| (format!("target.'{cfg}'."), tables));
+    let mut sections = Vec::new();
+    for (prefix, tables) in std::iter::once((String::new(), &top_level)).chain(targets) {
+        sections.push((format!("{prefix}dependencies"), &tables.dependencies));
+        sections.push((
+            format!("{prefix}dev-dependencies"),
+            &tables.dev_dependencies,
+        ));
+        sections.push((
+            format!("{prefix}build-dependencies"),
+            &tables.build_dependencies,
+        ));
+    }
     let mut edges = Vec::new();
     for (section, deps) in sections {
         for (key, value) in deps {
@@ -127,7 +157,7 @@ fn module_edges(
                 edges.push(Edge {
                     from: module.name.clone(),
                     to: to.to_string(),
-                    section,
+                    section: section.clone(),
                     span: Span::from_byte_range(file.clone(), &text, value.span()),
                 });
             }

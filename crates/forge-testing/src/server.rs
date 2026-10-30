@@ -136,18 +136,37 @@ pub async fn wait_ready(url: &str, timeout: Duration) -> Result<(), HarnessError
     }
 }
 
-/// `url` with the password replaced by `***`.
-fn redact(url: &str) -> String {
+/// `url` with the password replaced by `***`, both in the userinfo (which may
+/// itself contain `@`) and in a `password=` query parameter.
+pub(crate) fn redact(url: &str) -> String {
+    let url = redact_query_password(url);
     let Some((scheme, rest)) = url.split_once("://") else {
-        return url.to_string();
+        return url;
     };
-    let Some((userinfo, host)) = rest.split_once('@') else {
-        return url.to_string();
+    let Some((userinfo, host)) = rest.rsplit_once('@') else {
+        return url;
     };
     let Some((user, _password)) = userinfo.split_once(':') else {
-        return url.to_string();
+        return url;
     };
     format!("{scheme}://{user}:***@{host}")
+}
+
+fn redact_query_password(url: &str) -> String {
+    let Some((head, query)) = url.split_once('?') else {
+        return url.to_string();
+    };
+    let params: Vec<&str> = query
+        .split('&')
+        .map(|param| {
+            if param.starts_with("password=") {
+                "password=***"
+            } else {
+                param
+            }
+        })
+        .collect();
+    format!("{head}?{}", params.join("&"))
 }
 
 static SERVER: OnceCell<String> = OnceCell::const_new();

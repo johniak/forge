@@ -54,15 +54,6 @@ fn full() -> u8 {
     100
 }
 
-impl Default for Verification {
-    fn default() -> Self {
-        Self {
-            line_coverage: full(),
-            branch_coverage: full(),
-        }
-    }
-}
-
 /// A loaded, validated module.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Module {
@@ -112,7 +103,13 @@ struct ModuleFile {
     #[serde(default)]
     dependencies: DependenciesSection,
     #[serde(default)]
-    verification: Verification,
+    verification: VerificationSection,
+}
+
+#[derive(Deserialize, Default)]
+struct VerificationSection {
+    line_coverage: Option<Spanned<u8>>,
+    branch_coverage: Option<Spanned<u8>>,
 }
 
 #[derive(Deserialize)]
@@ -157,7 +154,7 @@ fn read_error(code: &str, file: &Path, err: &std::io::Error) -> Diagnostic {
 ///
 /// # Errors
 ///
-/// Returns every diagnostic found (`FM001`…`FM007`); the list is never empty.
+/// Returns every diagnostic found (`FM001`…`FM008`); the list is never empty.
 pub fn load_project(root: &Path) -> Result<Project, Vec<Diagnostic>> {
     let root = root
         .canonicalize()
@@ -261,8 +258,23 @@ fn load_module(
     let span_of = |entry: &Spanned<String>| {
         Span::from_byte_range(module_manifest.clone(), &module_text, entry.span())
     };
-    let (allowed, forbidden) =
-        validate_dependencies(name, &parsed.dependencies, declared, span_of)?;
+    let verification = validate_verification(
+        name,
+        &parsed.verification,
+        span_of_u8(&module_manifest, &module_text),
+    );
+    let dependencies = validate_dependencies(name, &parsed.dependencies, declared, span_of);
+    let ((allowed, forbidden), verification) = match (dependencies, verification) {
+        (Ok(deps), Ok(verification)) => (deps, verification),
+        (deps, verification) => {
+            return Err(deps
+                .err()
+                .into_iter()
+                .chain(verification.err())
+                .flatten()
+                .collect());
+        }
+    };
     Ok(Module {
         name: name.to_string(),
         path: dir,
@@ -270,8 +282,48 @@ fn load_module(
         description: parsed.module.description,
         allowed,
         forbidden,
-        verification: parsed.verification,
+        verification,
     })
+}
+
+fn span_of_u8<'a>(file: &'a Path, text: &'a str) -> impl Fn(&Spanned<u8>) -> Span + 'a {
+    move |value| Span::from_byte_range(file.to_path_buf(), text, value.span())
+}
+
+/// Coverage thresholds are percentages; anything above 100 is a typo that
+/// would make the module impossible to pass (`FM008`). Omitted means 100.
+fn validate_verification(
+    name: &str,
+    section: &VerificationSection,
+    span_of: impl Fn(&Spanned<u8>) -> Span,
+) -> Result<Verification, Vec<Diagnostic>> {
+    let mut diags = Vec::new();
+    let mut read = |field: &str, value: Option<&Spanned<u8>>| match value {
+        None => full(),
+        Some(v) if *v.get_ref() > 100 => {
+            diags.push(
+                Diagnostic::error(
+                    "FM008",
+                    format!(
+                        "module `{name}`: {field} = {} is not a percentage (0-100)",
+                        v.get_ref()
+                    ),
+                )
+                .with_span(span_of(v)),
+            );
+            full()
+        }
+        Some(v) => *v.get_ref(),
+    };
+    let verification = Verification {
+        line_coverage: read("line_coverage", section.line_coverage.as_ref()),
+        branch_coverage: read("branch_coverage", section.branch_coverage.as_ref()),
+    };
+    if diags.is_empty() {
+        Ok(verification)
+    } else {
+        Err(diags)
+    }
 }
 
 /// Checks a module's `allowed`/`forbidden` lists against the declared modules

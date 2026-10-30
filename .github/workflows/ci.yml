@@ -100,7 +100,8 @@ jobs:
     name: mutants (informational)
     runs-on: ubuntu-latest
     continue-on-error: true
-    # 156 mutants of forge-tooling + forge-cli took 12 min locally with one job.
+    # The whole workspace (~210 mutants; forge-testing starts PostgreSQL in
+    # Docker) took ~22 min locally with one job.
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -119,9 +120,19 @@ jobs:
         run: |
           git diff "origin/$BASE_REF...HEAD" > pr.diff
           cargo mutants --workspace --jobs 2 --in-diff pr.diff --timeout 120
-      - name: Mutants of the tooling crates
+      - name: Mutants in the pushed commits
         if: github.event_name == 'push'
-        run: cargo mutants --package forge-tooling --package forge-cli --jobs 2 --timeout 120
+        env:
+          BEFORE: ${{ github.event.before }}
+        # A new branch has an all-zero `before`; after a force push it may be
+        # unreachable. Both fall back to the whole workspace.
+        run: |
+          if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            git diff "$BEFORE" HEAD > push.diff
+            cargo mutants --workspace --jobs 2 --in-diff push.diff --timeout 120
+          else
+            cargo mutants --workspace --jobs 2 --timeout 120
+          fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

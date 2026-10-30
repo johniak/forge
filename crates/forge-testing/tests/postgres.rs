@@ -86,6 +86,47 @@ async fn concurrent_creates_share_one_template() {
     .unwrap();
     assert_eq!((count, is_template, allow_conn), (1, true, false));
     assert!(!exists(&format!("{template}_building")).await);
+    drop(databases);
+    drop_template(&template).await;
+}
+
+/// Removes a template this test created, so repeated runs do not accumulate them.
+async fn drop_template(template: &str) {
+    let mut admin = admin().await;
+    for sql in [
+        format!("ALTER DATABASE \"{template}\" WITH IS_TEMPLATE false"),
+        format!("DROP DATABASE \"{template}\""),
+    ] {
+        sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+            .execute(&mut admin)
+            .await
+            .unwrap();
+    }
+}
+
+/// Force-drops the named databases when it goes out of scope, also when the
+/// test fails half-way, so hand-made fixture databases never outlive a run.
+struct DropOnExit(Vec<String>);
+
+impl Drop for DropOnExit {
+    fn drop(&mut self) {
+        let names = std::mem::take(&mut self.0);
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Runtime::new().unwrap();
+            runtime.block_on(async {
+                let mut admin = admin().await;
+                for name in names {
+                    let sql = format!("DROP DATABASE IF EXISTS \"{name}\" WITH (FORCE)");
+                    sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+                        .execute(&mut admin)
+                        .await
+                        .unwrap();
+                }
+            });
+        })
+        .join()
+        .unwrap();
+    }
 }
 
 /// Awaits every create concurrently on this runtime and unwraps the results.
@@ -111,6 +152,10 @@ async fn broken_seed_fails_and_leaves_no_template() {
         "{err:?}"
     );
     assert!(!exists(&template).await);
+    assert!(
+        !exists(&format!("{template}_building")).await,
+        "a failed build must not leave its scratch database behind"
+    );
     // A retry after the failure starts from scratch and fails the same way.
     assert!(TestDatabase::create(&seed).await.is_err());
 }
@@ -169,12 +214,25 @@ async fn database_dropped_by_the_test_itself_does_not_panic_on_drop() {
 async fn sweep_drops_stale_but_never_live_databases() {
     let url = server_url().await.unwrap();
     let pid = std::process::id();
-    let stale_idle = format!("forge_test_100_{pid}_1");
-    let stale_live = format!("forge_test_100_{pid}_2");
+    // Half an hour old: stale for this test's one-minute sweep, but not for
+    // the one-hour start-up sweep of other test processes running meanwhile.
+    let created = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        - 1800;
+    let stale_idle = format!("forge_test_{created}_{pid}_1");
+    let stale_live = format!("forge_test_{created}_{pid}_2");
     let unparseable = [
         format!("forge_test_x_{pid}"),
         format!("forge_test_100{pid}"),
     ];
+    let _cleanup = DropOnExit(vec![
+        stale_idle.clone(),
+        stale_live.clone(),
+        unparseable[0].clone(),
+        unparseable[1].clone(),
+    ]);
     let mut admin = admin().await;
     for name in [&stale_idle, &stale_live, &unparseable[0], &unparseable[1]] {
         sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE DATABASE \"{name}\"")))
@@ -182,11 +240,12 @@ async fn sweep_drops_stale_but_never_live_databases() {
             .await
             .unwrap();
     }
-    let live_url = url.rsplit_once('/').unwrap().0.to_string() + "/" + &stale_live;
-    let live = PgConnection::connect(&live_url).await.unwrap();
+    let live = PgConnection::connect(&database_url(&url, &stale_live))
+        .await
+        .unwrap();
     let fresh = TestDatabase::create(&Seed::empty()).await.unwrap();
 
-    let dropped = sweep_stale(&url, Duration::from_hours(1)).await.unwrap();
+    let dropped = sweep_stale(&url, Duration::from_mins(1)).await.unwrap();
 
     assert!(dropped.contains(&stale_idle), "{dropped:?}");
     assert!(!exists(&stale_idle).await);
@@ -204,14 +263,85 @@ async fn sweep_drops_stale_but_never_live_databases() {
             "{name} has no timestamp and is left alone"
         );
     }
-
     live.close().await.unwrap();
-    for name in [&stale_live, &unparseable[0], &unparseable[1]] {
-        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-            "DROP DATABASE \"{name}\" WITH (FORCE)"
-        )))
-        .execute(&mut admin)
+}
+
+#[tokio::test]
+async fn sweep_drops_abandoned_template_builds_but_not_active_ones() {
+    let url = server_url().await.unwrap();
+    // Unique per process; the advisory lock key is the first 15 hex digits.
+    // Every fixture is created while its lock is held, as a real builder does,
+    // so start-up sweeps of other test processes cannot take it early.
+    let pid = format!("{:08x}", std::process::id());
+    let abandoned = format!("forge_tpl_aaaa{pid}0000_building");
+    let active_hash = format!("bbbb{pid}0000");
+    let active = format!("forge_tpl_{active_hash}_building");
+    let in_use_hash = format!("cccc{pid}0000");
+    let in_use = format!("forge_tpl_{in_use_hash}_building");
+    let junk = format!("forge_tpl_{pid}_building");
+    let _cleanup = DropOnExit(vec![
+        abandoned.clone(),
+        active.clone(),
+        in_use.clone(),
+        junk.clone(),
+    ]);
+    // The builder of `active` keeps its lock for the whole test.
+    let mut builder = PgConnection::connect(&url).await.unwrap();
+    advisory_lock(&mut builder, &active_hash).await;
+    // `in_use` gets a reader before its lock is released: no builder, but busy.
+    let mut in_use_builder = PgConnection::connect(&url).await.unwrap();
+    advisory_lock(&mut in_use_builder, &in_use_hash).await;
+    let mut admin = admin().await;
+    for name in [&abandoned, &active, &in_use, &junk] {
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE DATABASE \"{name}\"")))
+            .execute(&mut admin)
+            .await
+            .unwrap();
+    }
+    let reader = PgConnection::connect(&database_url(&url, &in_use))
         .await
         .unwrap();
-    }
+    in_use_builder.close().await.unwrap();
+
+    sweep_stale(&url, Duration::from_hours(1)).await.unwrap();
+
+    assert!(!exists(&abandoned).await, "nobody builds it: dropped");
+    assert!(exists(&active).await, "its builder holds the lock: kept");
+    assert!(exists(&in_use).await, "a database in use is never dropped");
+    assert!(
+        exists(&junk).await,
+        "no parseable hash, no lock key: left alone"
+    );
+    builder.close().await.unwrap();
+    reader.close().await.unwrap();
+}
+
+/// Takes the template-build lock for `hash` (key: its first 15 hex digits).
+async fn advisory_lock(conn: &mut PgConnection, hash: &str) {
+    let key = i64::from_str_radix(&hash[..15], 16).unwrap();
+    sqlx::query("SELECT pg_advisory_lock($1)")
+        .bind(key)
+        .execute(conn)
+        .await
+        .unwrap();
+}
+
+/// `url` pointing at database `name`.
+fn database_url(url: &str, name: &str) -> String {
+    url.rsplit_once('/').unwrap().0.to_string() + "/" + name
+}
+
+#[tokio::test]
+async fn debug_output_never_shows_the_password() {
+    let url = server_url().await.unwrap();
+    let userinfo = url.split_once("://").unwrap().1.rsplit_once('@').unwrap().0;
+    let password = userinfo.split_once(':').unwrap().1;
+    assert!(
+        !password.is_empty(),
+        "the test servers always use a password"
+    );
+    let db = TestDatabase::create(&Seed::empty()).await.unwrap();
+    let debug = format!("{db:?}");
+    assert!(debug.contains(db.name()), "{debug}");
+    assert!(!debug.contains(&format!(":{password}@")), "{debug}");
 }

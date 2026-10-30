@@ -32,8 +32,9 @@ coverage therefore stays a reported metric alongside lines and branches.
    (date pinned in CI, bumped deliberately). A coverage job that cannot run
    reports `NOT_VERIFIED`, never a pass.
 3. **Scope:** workspace crates under `crates/` are "framework-owned" and must
-   hit 100% lines and 100% branches; `#[cfg(test)]` modules are excluded by the
-   tool; any other exclusion needs an entry in `docs/coverage-exclusions.md`
+   hit 100% lines and 100% branches; `#[cfg(test)]` modules are **not**
+   excluded by the tool (corrected by Amendment item 4); any exclusion needs
+   an entry in `docs/coverage-exclusions.md`
    with reviewer, reason and expiry. An agent may not add entries for code it
    changed in the same change.
 4. **Binaries** (`forge-cli`) are covered through integration tests that spawn
@@ -89,3 +90,19 @@ High: if `-C instrument-coverage` branch support stabilizes, drop the nightly.
    but no branch threshold (checked with `cargo llvm-cov --help`, 2026-10-29).
    `forge coverage` reads the `--json --summary-only` export and enforces each
    module's `[verification]` thresholds from `forge.module.toml`.
+4. **What the tool excludes, and what `forge coverage` refuses** (from the
+   Phase 0 final review). Decision 3's "`#[cfg(test)]` modules are excluded
+   by the tool" was wrong: cargo-llvm-cov 0.8.7 measures them like any other
+   code in `src/`. Its default `--ignore-filename-regex` drops, anywhere in
+   the workspace, `tests/`, `examples/` and `benches/` directories and files
+   named `tests.rs` or `<name>_tests.rs` / `<name>-tests.rs` (`src/report.rs`
+   of v0.8.7), plus the target directory, cargo registry/git sources and
+   rustup toolchains. Silent drops are not passes, so `forge coverage`:
+   - reports `NOT_VERIFIED` (`FV006`) for every module when the export has
+     no branch data at all (0 branches in every file: `--branch` missing or
+     a stable toolchain);
+   - reports `NOT_VERIFIED` (`FV007`) for each `.rs` file under a module's
+     `src/` that the default filter would drop;
+   - fails (`FV008`) a module whose threshold is below 100, because no
+     owner-approved exclusion ledger exists before Phase 4 (D14); a value
+     above 100 is a manifest error (`FM008`).

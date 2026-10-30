@@ -59,3 +59,31 @@ forge.coverage: PASS
   [PASS] coverage:forge-tooling
 exit: 0
 Note: regions in forge-testing are 91-93% (unexercised `?` propagation of mid-operation database errors); the gate measures lines and branches (SPEC §9.2).
+
+## After the final-review fix pass — 2026-10-30T01:15:29Z (base 423541a + fix-pass working tree)
+$ cargo +nightly-2026-06-13 llvm-cov nextest --locked --branch --workspace --json --summary-only --output-path target/coverage/coverage.json   (FORGE_TEST_PG_URL unset: Docker path)
+     Summary [   7.171s] 111 tests run: 111 passed, 0 skipped
+exit: 0
+
+$ cargo +nightly-2026-06-13 llvm-cov report --branch --summary-only
+Filename                              Regions    Missed Regions     Cover   Functions  Missed Functions  Executed       Lines      Missed Lines     Cover    Branches   Missed Branches     Cover
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+forge-cli/src/main.rs                      41                 0   100.00%           5                 0   100.00%          38                 0   100.00%           0                 0         -
+forge-testing/src/database.rs             332                25    92.47%          29                 0   100.00%         209                 0   100.00%          16                 0   100.00%
+forge-testing/src/seed.rs                  26                 0   100.00%           5                 0   100.00%          22                 0   100.00%           0                 0         -
+forge-testing/src/server.rs               158                10    93.67%          20                 0   100.00%         112                 0   100.00%          14                 0   100.00%
+forge-tooling/src/architecture.rs         302                 0   100.00%          20                 0   100.00%         190                 0   100.00%          16                 0   100.00%
+forge-tooling/src/check.rs                357                 0   100.00%          29                 0   100.00%         202                 0   100.00%          20                 0   100.00%
+forge-tooling/src/coverage.rs             361                 0   100.00%          34                 0   100.00%         247                 0   100.00%          44                 0   100.00%
+forge-tooling/src/manifest.rs             340                 0   100.00%          19                 0   100.00%         202                 0   100.00%          24                 0   100.00%
+forge-tooling/src/process.rs               15                 0   100.00%           1                 0   100.00%           8                 0   100.00%           0                 0         -
+forge-tooling/src/report.rs               299                 0   100.00%          28                 0   100.00%         222                 0   100.00%           4                 0   100.00%
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+TOTAL                                    2231                35    98.43%         190                 0   100.00%        1452                 0   100.00%         138                 0   100.00%
+
+$ cargo run -q --locked -p forge-cli -- coverage --input target/coverage/coverage.json
+forge.coverage: PASS
+  [PASS] coverage:forge-cli
+  [PASS] coverage:forge-testing
+  [PASS] coverage:forge-tooling
+exit: 0

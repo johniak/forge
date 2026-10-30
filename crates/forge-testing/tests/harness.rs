@@ -163,3 +163,21 @@ async fn wait_ready_keeps_retrying_until_the_timeout() {
         "kept waiting for {elapsed:?}"
     );
 }
+
+#[tokio::test]
+async fn wait_ready_hides_passwords_with_at_signs_and_in_the_query() {
+    for (url, secret) in [
+        ("postgres://forge:p@ss@127.0.0.1:1/postgres", "p@ss"),
+        (
+            "postgres://forge@127.0.0.1:1/postgres?sslmode=disable&password=s3cret",
+            "s3cret",
+        ),
+    ] {
+        let err = wait_ready(url, Duration::from_millis(100))
+            .await
+            .unwrap_err();
+        let message = err.to_string();
+        assert!(!message.contains(secret), "{message}");
+        assert!(message.contains("127.0.0.1:1/postgres"), "{message}");
+    }
+}

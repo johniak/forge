@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::{AssertSqlSafe, Connection, PgConnection};
 
-use crate::server::{database_url, server_url};
+use crate::server::{database_url, redact, server_url};
 use crate::{HarnessError, Seed};
 
 const TEST_PREFIX: &str = "forge_test_";
@@ -17,7 +17,6 @@ static COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// A database that exists for one test and is dropped when this value drops,
 /// including while a failing test unwinds.
-#[derive(Debug)]
 pub struct TestDatabase {
     url: String,
     name: String,
@@ -79,6 +78,16 @@ impl TestDatabase {
     }
 }
 
+/// Shows the name and the URL with its password hidden.
+impl std::fmt::Debug for TestDatabase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TestDatabase")
+            .field("name", &self.name)
+            .field("url", &redact(&self.url))
+            .finish_non_exhaustive()
+    }
+}
+
 impl Drop for TestDatabase {
     fn drop(&mut self) {
         // `Drop` may run inside the test's runtime, which cannot block on
@@ -119,7 +128,7 @@ fn drop_database(admin_url: &str, name: &str) -> Result<(), HarnessError> {
 async fn ensure_template(admin_url: &str, seed: &Seed) -> Result<String, HarnessError> {
     let hash = seed.hash();
     let template = format!("{TEMPLATE_PREFIX}{hash}");
-    let key = i64::from_str_radix(&hash[..15], 16).unwrap_or_default();
+    let key = lock_key(&hash).unwrap_or_default();
     let mut admin = PgConnection::connect(admin_url).await?;
     sqlx::query("SELECT pg_advisory_lock($1)")
         .bind(key)
@@ -157,7 +166,10 @@ async fn build_template(
         .execute(&mut conn)
         .await;
     conn.close().await?;
-    seeded?;
+    if let Err(err) = seeded {
+        execute(admin, format!("DROP DATABASE {}", quote(&building))).await?;
+        return Err(err.into());
+    }
     execute(
         admin,
         format!(
@@ -177,9 +189,10 @@ async fn build_template(
     .await
 }
 
-/// Drops `forge_test_*` databases created more than `older_than` ago. A
-/// database someone is connected to is left alone: plain `DROP DATABASE`
-/// (without `FORCE`) refuses it, and that refusal is not an error here.
+/// Drops `forge_test_*` databases created more than `older_than` ago, and
+/// `forge_tpl_*_building` databases whose builder is gone (its advisory lock is
+/// free). A database someone is connected to is left alone: plain `DROP
+/// DATABASE` (without `FORCE`) refuses it, and that refusal is not an error here.
 ///
 /// # Errors
 ///
@@ -189,25 +202,58 @@ pub async fn sweep_stale(
     older_than: Duration,
 ) -> Result<Vec<String>, HarnessError> {
     let mut admin = PgConnection::connect(admin_url).await?;
-    let names: Vec<String> =
-        sqlx::query_scalar("SELECT datname FROM pg_database WHERE starts_with(datname, $1)")
-            .bind(TEST_PREFIX)
-            .fetch_all(&mut admin)
-            .await?;
+    let names: Vec<String> = sqlx::query_scalar(
+        "SELECT datname FROM pg_database WHERE starts_with(datname, $1) OR starts_with(datname, $2)",
+    )
+    .bind(TEST_PREFIX)
+    .bind(TEMPLATE_PREFIX)
+    .fetch_all(&mut admin)
+    .await?;
     let cutoff = now_secs().saturating_sub(older_than.as_secs());
     let mut dropped = Vec::new();
     for name in names {
         let stale = stale_timestamp(&name).is_some_and(|created| created < cutoff);
-        if stale
-            && execute(&mut admin, format!("DROP DATABASE {}", quote(&name)))
-                .await
-                .is_ok()
-        {
+        if stale && try_drop(&mut admin, &name).await {
             dropped.push(name);
+        } else if let Some(key) = abandoned_build_key(&name) {
+            let builder_gone: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+                .bind(key)
+                .fetch_one(&mut admin)
+                .await?;
+            if builder_gone {
+                if try_drop(&mut admin, &name).await {
+                    dropped.push(name);
+                }
+                sqlx::query("SELECT pg_advisory_unlock($1)")
+                    .bind(key)
+                    .execute(&mut admin)
+                    .await?;
+            }
         }
     }
     admin.close().await?;
     Ok(dropped)
+}
+
+/// `DROP DATABASE` without `FORCE`; `false` when the server refuses (in use).
+async fn try_drop(admin: &mut PgConnection, name: &str) -> bool {
+    execute(admin, format!("DROP DATABASE {}", quote(name)))
+        .await
+        .is_ok()
+}
+
+/// Advisory lock key of a template build: the first 15 hex digits of the seed
+/// hash (60 bits, always a positive `i64`).
+fn lock_key(hash: &str) -> Option<i64> {
+    i64::from_str_radix(hash.get(..15)?, 16).ok()
+}
+
+/// The lock key of a `forge_tpl_<hash>_building` scratch database.
+fn abandoned_build_key(name: &str) -> Option<i64> {
+    let hash = name
+        .strip_prefix(TEMPLATE_PREFIX)?
+        .strip_suffix("_building")?;
+    lock_key(hash)
 }
 
 /// Creation time embedded in a test database name.

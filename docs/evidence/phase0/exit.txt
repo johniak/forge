@@ -24,4 +24,7 @@ forge.coverage: PASS
   [PASS] coverage:forge-tooling
 exit: 0
 
-CI on GitHub: see docs/requirements-matrix.md (row B-08) for the run URL of the final Phase 0 commit.
+This clone ran at 1ddcc14 (end of Task 7). Later commits — Task 8 (423541a) and
+the final-review fix pass — were verified locally (coverage-gate.txt, last
+section: 111/111 tests, gate PASS) and in CI on GitHub: see
+docs/requirements-matrix.md (row B-08) for the run URL of the final Phase 0 commit.

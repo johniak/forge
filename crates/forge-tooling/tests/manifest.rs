@@ -218,3 +218,23 @@ fn testing_kind_is_accepted() {
     let core = project.modules.iter().find(|m| m.name == "core").unwrap();
     assert_eq!(core.kind, ModuleKind::Testing);
 }
+
+#[test]
+fn coverage_threshold_above_100_is_fm008() {
+    let tp = valid_project();
+    tp.write(
+        "crates/core/forge.module.toml",
+        "[module]\nname = \"core\"\nkind = \"domain\"\n\n[dependencies]\nforbidden = [\"cli\"]\n\n[verification]\nbranch_coverage = 101\n",
+    );
+    let diags = load_project(tp.root()).unwrap_err();
+    assert_eq!(codes(&diags), vec!["FM008"]);
+    assert!(diags[0].message.contains("101"));
+    assert!(
+        diags[0]
+            .span
+            .as_ref()
+            .unwrap()
+            .file
+            .ends_with("crates/core/forge.module.toml")
+    );
+}

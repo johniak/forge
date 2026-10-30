@@ -113,32 +113,32 @@ fn missing_line_fails() {
 
 #[test]
 fn files_without_branches_count_as_full() {
+    // A file with no branches is fully covered as long as the export carries
+    // branch data at all (see export_without_branch_instrumentation_is_not_verified).
     let tp = valid_project();
     let files = vec![
-        (src(&tp, "crates/core/src/lib.rs"), (1, 1), (0, 0)),
+        (src(&tp, "crates/core/src/lib.rs"), (1, 1), (2, 2)),
         (src(&tp, "crates/cli/src/lib.rs"), (1, 1), (0, 0)),
     ];
     assert_eq!(run(&tp, &export(&tp, &files)).status, Status::Pass);
 }
 
 #[test]
-fn thresholds_come_from_module_manifest() {
+fn module_with_its_library_outside_src_is_gated_on_its_files() {
+    // `[lib] path = "lib.rs"`: there is no src/ directory to scan for hidden files.
     let tp = valid_project();
-    tp.write(
-        "crates/core/forge.module.toml",
-        "[module]\nname = \"core\"\nkind = \"domain\"\n\n[dependencies]\nforbidden = [\"cli\"]\n\n[verification]\nline_coverage = 90\nbranch_coverage = 75\n",
-    );
-    let mut files = full(&tp);
-    files[0].1 = (9, 10);
-    files[0].2 = (3, 4);
-    let report = run(&tp, &export(&tp, &files));
-    assert_eq!(report.status, Status::Pass, "{report:?}");
-
-    files[0].1 = (8, 10);
+    std::fs::remove_file(tp.root().join("crates/cli/src/lib.rs")).unwrap();
+    std::fs::remove_dir(tp.root().join("crates/cli/src")).unwrap();
+    tp.write("crates/cli/lib.rs", "pub fn f() {}\n");
+    let files = vec![
+        (src(&tp, "crates/core/src/lib.rs"), (1, 1), (2, 2)),
+        (src(&tp, "crates/cli/lib.rs"), (1, 1), (0, 0)),
+    ];
     let report = run(&tp, &export(&tp, &files));
     assert_eq!(
-        result(&report, "coverage:core").diagnostics[0].code,
-        "FV001"
+        result(&report, "coverage:cli").status,
+        Status::Pass,
+        "{report:?}"
     );
 }
 
@@ -226,8 +226,8 @@ fn module_paths_do_not_match_by_string_prefix() {
     tp.module("a", "crates/a", &[], &[], "");
     tp.module("ab", "crates/ab", &[], &[], "");
     let files = vec![
-        (src(&tp, "crates/a/src/lib.rs"), (1, 1), (0, 0)),
-        (src(&tp, "crates/ab/src/lib.rs"), (1, 2), (0, 0)),
+        (src(&tp, "crates/a/src/lib.rs"), (1, 1), (2, 2)),
+        (src(&tp, "crates/ab/src/lib.rs"), (1, 2), (2, 2)),
     ];
     let report = run(&tp, &export(&tp, &files));
     assert_eq!(result(&report, "coverage:a").status, Status::Pass);
@@ -276,4 +276,79 @@ fn each_file_is_reported_only_for_its_own_shortfall() {
     assert_eq!(found.len(), 2, "{:?}", core.diagnostics);
     assert!(found.contains(&("FV001", true)), "{found:?}");
     assert!(found.contains(&("FV002", false)), "{found:?}");
+}
+
+#[test]
+fn export_without_branch_instrumentation_is_not_verified() {
+    // `cargo llvm-cov` without `--branch` (or on stable) writes 0/0 branches
+    // for every file; that is missing data, not full branch coverage.
+    let tp = valid_project();
+    let files = vec![
+        (src(&tp, "crates/core/src/lib.rs"), (10, 10), (0, 0)),
+        (src(&tp, "crates/cli/src/lib.rs"), (5, 5), (0, 0)),
+    ];
+    let report = run(&tp, &export(&tp, &files));
+    assert_eq!(report.status, Status::NotVerified, "{report:?}");
+    for id in ["coverage:core", "coverage:cli"] {
+        let module = result(&report, id);
+        assert_eq!(module.status, Status::NotVerified);
+        assert_eq!(module.diagnostics[0].code, "FV006");
+        assert!(module.diagnostics[0].message.contains("--branch"));
+    }
+}
+
+#[test]
+fn files_hidden_by_the_llvm_cov_default_filter_are_not_verified() {
+    // cargo-llvm-cov 0.8.7 drops `tests/`, `examples/` and `benches/`
+    // directories and `tests.rs` / `<name>_tests.rs` / `<name>-tests.rs` files
+    // anywhere in the workspace by default.
+    let tp = valid_project();
+    let hidden = [
+        "crates/core/src/tests/mod.rs",
+        "crates/core/src/examples/demo.rs",
+        "crates/core/src/benches/bench.rs",
+        "crates/core/src/tests.rs",
+        "crates/core/src/model_tests.rs",
+        "crates/core/src/model-tests.rs",
+        "crates/core/src/__tests.rs",
+    ];
+    let measured = [
+        "crates/core/src/_tests.rs",          // needs a name before `_tests`
+        "crates/core/src/modèl_tests.rs",     // the name must be [0-9a-zA-Z_-]
+        "crates/core/src/latests.rs",         // no separator before `tests`
+        "crates/core/src/tests/fixture.json", // not Rust
+        "crates/core/tests/integration.rs",   // the crate's own test target
+    ];
+    for rel in hidden.iter().chain(&measured) {
+        tp.write(rel, "pub fn f() {}\n");
+    }
+    let report = run(&tp, &export(&tp, &full(&tp)));
+    assert_eq!(report.status, Status::NotVerified, "{report:?}");
+    let core = result(&report, "coverage:core");
+    assert_eq!(core.status, Status::NotVerified);
+    assert!(core.diagnostics.iter().all(|d| d.code == "FV007"));
+    let mut reported: Vec<PathBuf> = core
+        .diagnostics
+        .iter()
+        .map(|d| d.span.as_ref().unwrap().file.clone())
+        .collect();
+    reported.sort();
+    let mut expected: Vec<PathBuf> = hidden.iter().map(|rel| src(&tp, rel)).collect();
+    expected.sort();
+    assert_eq!(reported, expected);
+    assert_eq!(result(&report, "coverage:cli").status, Status::Pass);
+}
+
+#[test]
+fn lowered_threshold_fails_without_approval() {
+    let tp = valid_project();
+    tp.write(
+        "crates/core/forge.module.toml",
+        "[module]\nname = \"core\"\nkind = \"domain\"\n\n[dependencies]\nforbidden = [\"cli\"]\n\n[verification]\nline_coverage = 90\n",
+    );
+    let report = run(&tp, &export(&tp, &full(&tp)));
+    assert_eq!(report.status, Status::Fail, "{report:?}");
+    let core = result(&report, "coverage:core");
+    assert_eq!(core.diagnostics[0].code, "FV008");
+    assert!(core.diagnostics[0].message.contains("90"));
 }
