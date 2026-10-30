@@ -22,3 +22,10 @@ $ cargo mutants --package forge-testing --file crates/forge-testing/src/server.r
   4 mutants tested: 3 caught, 1 unviable
 remaining (accepted, equivalent in practice):
   crates/forge-testing/src/database.rs: sweep_stale `created < cutoff` -> `<=`: differs only for a database created in the exact cutoff second of a one-hour threshold; pinning it needs an injected clock, not worth it in Phase 0.
+
+## CI (GitHub Actions, run 40976782700, commit 1ddcc14, --jobs 2)
+156 mutants tested in 4m: 119 caught, 36 unviable, 1 timeouts
+timeout: crates/forge-tooling/src/report.rs `-=` -> `/=` in line_column (infinite loop)
+follow-up: line_column now uses `str::floor_char_boundary` (no loop);
+$ cargo mutants --package forge-tooling --file crates/forge-tooling/src/report.rs --re line_column
+  11 mutants tested: 11 caught

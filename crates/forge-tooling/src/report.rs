@@ -118,11 +118,7 @@ impl Span {
 /// clamped to the nearest valid boundary before them.
 #[must_use]
 pub fn line_column(text: &str, offset: usize) -> (u32, u32) {
-    let mut offset = offset.min(text.len());
-    while !text.is_char_boundary(offset) {
-        offset -= 1;
-    }
-    let before = &text[..offset];
+    let before = &text[..text.floor_char_boundary(offset)];
     let line_start = before.rfind('\n').map_or(0, |p| p + 1);
     let line = before.matches('\n').count() + 1;
     let column = before[line_start..].chars().count() + 1;
