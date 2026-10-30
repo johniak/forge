@@ -54,8 +54,8 @@ P7 optional research.
 | B-05 | Layering: models/actions/policies/queries/events/admin/tests per app; guard rejects forbidden imports | P0 (Cargo-graph level), P5 (symbol level) | `forge check` architecture, ADR-0005 | guard test with injected forbidden dependency | IN_PROGRESS (P0 Cargo-graph level VERIFIED: `crates/forge-tooling/tests/architecture.rs`, `docs/evidence/phase0/exit.txt`; P5 symbol level pending) |
 | B-06 | Typed capability injection (`ActionContext`), no global locator | P1 | `forge-core` | compile-time test | NOT_STARTED |
 | B-07 | Errors/validation/config/logging/lifecycle/health | P1 basic, P6 full | `forge-core`, `forge-http` | tests | NOT_STARTED |
-| B-08 | CI on every push and PR: `forge check`, nextest against PostgreSQL, coverage gate on nightly, mutation testing (informational) | P0 | `.github/workflows/ci.yml` | green GitHub Actions run on the final Phase 0 commit | NOT_VERIFIED (awaiting the CI run of the final Phase 0 commit; gating jobs green on 1ddcc14: https://github.com/johniak/forge/actions/runs/40976782700) |
-| B-09 | Open-source baseline: README, CONTRIBUTING, SECURITY, CHANGELOG, MIT OR Apache-2.0 | P0 | repository root | relative-link check; files present | VERIFIED (commit c26c07d; link check in Phase 0 ledger) |
+| B-08 | CI on every push and PR: `forge check`, nextest against PostgreSQL, coverage gate on nightly, mutation testing (informational) | P0 | `.github/workflows/ci.yml` | green GitHub Actions run on the final Phase 0 commit | VERIFIED (all 4 jobs green on 157c713, the last code commit of Phase 0: https://github.com/johniak/forge/actions/runs/40984870697; mutants in the pushed diff: 65 tested, 58 caught, 7 unviable, 0 missed) |
+| B-09 | Open-source baseline: README, CONTRIBUTING, SECURITY, CHANGELOG, MIT OR Apache-2.0 | P0 | repository root | relative-link check; files present | VERIFIED (commit c26c07d; link check: `docs/evidence/phase0/linkcheck.sh`, result in `docs/evidence/phase0/execution-ledger.md`) |
 
 ## D. Models, schema, SQL, migrations (SPEC §4)
 

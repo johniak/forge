@@ -29,3 +29,6 @@ timeout: crates/forge-tooling/src/report.rs `-=` -> `/=` in line_column (infinit
 follow-up: line_column now uses `str::floor_char_boundary` (no loop);
 $ cargo mutants --package forge-tooling --file crates/forge-tooling/src/report.rs --re line_column
   11 mutants tested: 11 caught
+
+## CI (GitHub Actions, run 40984870697, commit 157c713, push step --in-diff against 423541a, whole workspace)
+65 mutants tested in 6m: 58 caught, 7 unviable
