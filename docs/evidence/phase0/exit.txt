@@ -1,0 +1,27 @@
+# Phase 0 exit demonstration — 2026-10-30T00:06:55Z
+# fresh clone of https://github.com/johniak/forge into a scratch directory; macOS arm64 + OrbStack Docker
+# toolchains: rustc 1.95.0 (59807616e 2026-04-14) | rustc 1.98.0-nightly (654079540 2026-06-12) | cargo-nextest 0.9.150 (d225b1daf 2026-10-26) | cargo-llvm-cov 0.8.7
+
+$ git clone https://github.com/johniak/forge  # HEAD 1ddcc14
+$ env | grep FORGE_TEST_PG_URL  -> unset
+$ cargo nextest run --locked --workspace
+     Summary [   8.458s] 103 tests run: 103 passed, 0 skipped
+exit: 0
+$ cargo run -q --locked -p forge-cli -- check
+forge.check: PASS
+  [PASS] manifests
+  [PASS] architecture
+  [PASS] fmt
+  [PASS] clippy
+exit: 0
+$ mkdir -p target/coverage && cargo +nightly-2026-06-13 llvm-cov nextest --locked --branch --workspace --json --summary-only --output-path target/coverage/coverage.json
+     Summary [   7.229s] 103 tests run: 103 passed, 0 skipped
+exit: 0
+$ cargo run -q --locked -p forge-cli -- coverage --input target/coverage/coverage.json
+forge.coverage: PASS
+  [PASS] coverage:forge-cli
+  [PASS] coverage:forge-testing
+  [PASS] coverage:forge-tooling
+exit: 0
+
+CI on GitHub: see docs/requirements-matrix.md (row B-08) for the run URL of the final Phase 0 commit.
